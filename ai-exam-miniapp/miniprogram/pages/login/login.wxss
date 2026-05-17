@@ -1,0 +1,11 @@
+.login-page { min-height: 100vh; background: #fff; }
+.login-content { padding: 260rpx 84rpx 0; display: flex; flex-direction: column; align-items: center; }
+.login-logo { width: 180rpx; height: 180rpx; margin-bottom: 78rpx; }
+.login-title { font-size: 48rpx; font-weight: 900; color: #15151d; margin-bottom: 26rpx; }
+.login-subtitle { font-size: 30rpx; color: #838b9d; margin-bottom: 300rpx; }
+.wechat-btn { width: 100%; height: 112rpx; border-radius: 18rpx; background: linear-gradient(135deg, #10cc61, #03b853); color: #fff; font-size: 36rpx; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+.wechat-btn::before { content: '●●'; font-size: 26rpx; margin-right: 18rpx; }
+.agree-row { margin-top: 54rpx; display: flex; align-items: center; flex-wrap: wrap; justify-content: center; color: #848b9c; font-size: 26rpx; }
+.checkbox { width: 34rpx; height: 34rpx; border-radius: 7rpx; border: 3rpx solid #9aa2b3; margin-right: 14rpx; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 22rpx; }
+.checkbox.checked { background: #5a4bf4; border-color: #5a4bf4; }
+.link { color: #5d52f4; margin: 0 4rpx; }

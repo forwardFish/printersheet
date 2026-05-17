@@ -1,0 +1,225 @@
+.my-page {
+  background: #fff;
+}
+.my-page .container {
+  padding: 0 34rpx;
+}
+.user-box {
+  display: flex;
+  align-items: center;
+  padding: 54rpx 0 40rpx;
+}
+.avatar {
+  width: 116rpx;
+  height: 116rpx;
+  border-radius: 50%;
+  margin-right: 34rpx;
+  background: #eeecff;
+}
+.avatar.guest {
+  background: #bebebe;
+}
+.nickname {
+  font-size: 36rpx;
+  line-height: 1.2;
+  font-weight: 900;
+  color: #1a1b23;
+  margin-bottom: 16rpx;
+}
+.uid {
+  font-size: 27rpx;
+  color: #6f778a;
+}
+.tap-login {
+  color: #8d95a8;
+}
+.member-card {
+  min-height: 156rpx;
+  border-radius: 16rpx;
+  border: 1rpx solid #f3c780;
+  background: linear-gradient(90deg, #fff9ec 0%, #fffdf8 100%);
+  display: flex;
+  align-items: center;
+  padding: 18rpx 22rpx 18rpx 34rpx;
+  margin-bottom: 26rpx;
+}
+.member-crown {
+  width: 72rpx;
+  height: 58rpx;
+  margin-right: 34rpx;
+}
+.member-info {
+  flex: 1;
+  min-width: 0;
+}
+.member-title {
+  font-size: 31rpx;
+  line-height: 1.2;
+  font-weight: 900;
+  color: #20222b;
+  margin-bottom: 14rpx;
+}
+.member-date {
+  font-size: 25rpx;
+  color: #7c8495;
+}
+.member-tip {
+  margin-top: 8rpx;
+  font-size: 22rpx;
+  line-height: 1.35;
+  color: #8a6a31;
+}
+.check-btn {
+  width: 170rpx;
+  height: 62rpx;
+  border-radius: 14rpx;
+  border: 1rpx solid #f0ae4f;
+  color: #ed7f1d;
+  font-size: 25rpx;
+  font-weight: 800;
+  background: #fffdf8;
+}
+.points-card {
+  height: 136rpx;
+  border-radius: 16rpx;
+  background: linear-gradient(135deg, #6b55ff 0%, #5a4bf4 100%);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 42rpx;
+  margin-bottom: 34rpx;
+  box-shadow: 0 18rpx 32rpx rgba(90, 75, 244, .18);
+}
+.points-label {
+  font-size: 27rpx;
+  opacity: .96;
+  margin-bottom: 10rpx;
+}
+.points-num {
+  font-size: 58rpx;
+  font-weight: 900;
+  line-height: 1;
+}
+.points-num text {
+  font-size: 26rpx;
+  font-weight: 600;
+  margin-left: 8rpx;
+}
+.buy-btn {
+  width: 180rpx;
+  height: 72rpx;
+  border-radius: 14rpx;
+  background: #fff;
+  color: #5a4bf4;
+  font-weight: 900;
+  font-size: 27rpx;
+}
+
+.share-card {
+  padding: 24rpx;
+  margin-bottom: 28rpx;
+}
+
+.share-title {
+  font-size: 30rpx;
+  font-weight: 900;
+  color: #171922;
+  margin-bottom: 10rpx;
+}
+
+.share-desc {
+  color: #6f7788;
+  font-size: 24rpx;
+  line-height: 1.5;
+}
+
+.share-actions {
+  display: flex;
+  gap: 14rpx;
+  margin-top: 20rpx;
+}
+
+.share-btn {
+  flex: 1;
+  height: 68rpx;
+  border-radius: 14rpx;
+  background: #f3f6ff;
+  color: #4b5a7c;
+  font-size: 24rpx;
+  font-weight: 800;
+}
+
+.share-btn.reward {
+  background: #5a4bf4;
+  color: #fff;
+}
+
+.invite-link {
+  height: 62rpx;
+  border-radius: 14rpx;
+  border: 1rpx dashed #aaa2ff;
+  color: #5a4bf4;
+  background: #fbfbff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24rpx;
+  font-weight: 800;
+  margin-top: 16rpx;
+}
+
+.share-status {
+  margin-top: 14rpx;
+  color: #687183;
+  font-size: 23rpx;
+  line-height: 1.45;
+}
+.list-card {
+  border-radius: 16rpx;
+  padding: 22rpx 32rpx;
+  margin-bottom: 38rpx;
+  box-shadow: none;
+}
+.list-item {
+  height: 100rpx;
+  display: flex;
+  align-items: center;
+  font-size: 31rpx;
+  font-weight: 800;
+  color: #171922;
+}
+.list-icon {
+  width: 54rpx;
+  height: 54rpx;
+  border-radius: 10rpx;
+  background: linear-gradient(135deg, #6b55ff, #5a4bf4);
+  color: #fff;
+  margin-right: 34rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28rpx;
+}
+.list-count {
+  display: none;
+}
+.chev {
+  margin-left: auto;
+  color: #71798c;
+  font-size: 54rpx;
+  font-weight: 300;
+}
+.line {
+  height: 1rpx;
+  background: #edf0f5;
+  margin-left: 88rpx;
+}
+
+.promo {
+  width: 100%;
+  height: 210rpx;
+  border-radius: 16rpx;
+  display: block;
+  overflow: hidden;
+}

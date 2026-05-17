@@ -1,0 +1,6 @@
+.records-page { min-height:100vh; background:#fff; }
+.empty { margin-top:30rpx; height:160rpx; display:flex; align-items:center; justify-content:center; color:#858d9e; }
+.record { padding:28rpx; margin-top:22rpx; }
+.record-title { font-size:30rpx; font-weight:900; color:#1a1c24; margin-bottom:12rpx; }
+.record-desc { font-size:24rpx; color:#7b8495; }
+.record-action { margin-top:16rpx; font-size:25rpx; color:#5a4bf4; font-weight:800; }

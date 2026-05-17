@@ -1,0 +1,26 @@
+{
+  "name": "ai-exam-helper-server",
+  "version": "1.0.0",
+  "description": "AI出题小助手轻后端：AI生成、PDF/Word导出、文件临时解析",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "docx": "^9.2.0",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "mammoth": "^1.9.0",
+    "multer": "^1.4.5-lts.1",
+    "pdf-parse": "^2.4.5",
+    "pdfkit": "^0.16.0",
+    "uuid": "^11.0.5"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -1,0 +1,9 @@
+.more-page { background:#fff; }
+.more-card { margin-top: 28rpx; padding: 0 30rpx; }
+.more-item { height: 96rpx; display:flex; align-items:center; justify-content:space-between; font-size:29rpx; font-weight:700; color:#1b1d26; }
+.more-item text:last-child { color:#8891a3; font-size:46rpx; font-weight:300; }
+.line { height:1rpx; background:#eff1f5; }
+.about { margin-top:28rpx; padding:40rpx 30rpx; text-align:center; }
+.about-logo { width:120rpx; height:120rpx; margin-bottom:18rpx; }
+.about-title { font-size:32rpx; font-weight:900; margin-bottom:14rpx; }
+.about-desc { color:#778093; font-size:25rpx; line-height:1.6; }

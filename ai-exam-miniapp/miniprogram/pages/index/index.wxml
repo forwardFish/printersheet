@@ -1,0 +1,158 @@
+<view class="safe-page index-page">
+  <nav-bar title="AI 出题小助手"></nav-bar>
+
+  <view class="container">
+    <view class="hero-card">
+      <image class="hero-image" src="/assets/hero-banner.png" mode="aspectFill"></image>
+      <view class="hero-logo-card">
+        <image class="hero-logo" src="/assets/logo-distinctive.png" mode="aspectFill"></image>
+        <view class="hero-brand-copy">
+          <view class="hero-brand-name">AI 出题小助手</view>
+          <view class="hero-brand-sub">练习卷 · 试题 · 打印</view>
+        </view>
+      </view>
+    </view>
+
+    <view class="points-row">
+      <view class="points-left">
+        <view class="points-icon">✓</view>
+        <text>剩余点数 {{points}}</text>
+      </view>
+      <view class="upgrade-pill" bindtap="goPackages">升级获取更多点数</view>
+    </view>
+
+    <view class="textarea-wrap {{statusType === 'error' ? 'error' : ''}}">
+      <textarea
+        class="prompt-input"
+        maxlength="300"
+        value="{{prompt}}"
+        bindinput="onPromptInput"
+        placeholder="例如：生成 5 道初一数学一元一次方程中等题，带答案解析，适合打印。"
+        placeholder-class="placeholder"
+        auto-height="false"
+        disabled="{{loading}}"
+      ></textarea>
+      <view class="counter">{{prompt.length}}/300</view>
+    </view>
+
+    <view class="quick-row">
+      <view class="quick-card {{openDropdown==='grade' ? 'active' : ''}}" bindtap="chooseGrade">
+        <view class="quick-icon cap"></view>
+        <text>{{grade}}</text>
+        <text class="arrow">⌄</text>
+      </view>
+      <view class="quick-card {{openDropdown==='subject' ? 'active' : ''}}" bindtap="chooseSubject">
+        <view class="quick-icon book"></view>
+        <text>{{subject}}</text>
+        <text class="arrow">⌄</text>
+      </view>
+      <view class="quick-card" bindtap="chooseDifficulty">
+        <view class="quick-icon chart"></view>
+        <text>{{difficulty}}</text>
+        <text class="arrow">⌄</text>
+      </view>
+    </view>
+    <view wx:if="{{openDropdown}}" class="select-panel">
+      <view class="select-head">{{openDropdown==='grade' ? '选择年级' : '选择科目'}}</view>
+      <scroll-view scroll-y class="select-list">
+        <block wx:if="{{openDropdown==='grade'}}">
+          <view wx:for="{{gradeGroups}}" wx:for-item="group" wx:key="name" class="select-group">
+            <view class="select-group-title">{{group.name}}</view>
+            <view class="select-grid">
+              <view
+                wx:for="{{group.items}}"
+                wx:for-item="gradeItem"
+                wx:key="*this"
+                class="select-option {{grade===gradeItem ? 'active' : ''}}"
+                data-value="{{gradeItem}}"
+                bindtap="selectGrade"
+              >
+                {{gradeItem}}
+              </view>
+            </view>
+          </view>
+        </block>
+        <block wx:else>
+          <view class="select-grid subject-grid">
+            <view
+              wx:for="{{subjectOptions}}"
+              wx:key="*this"
+              class="select-option {{subject===item ? 'active' : ''}}"
+              data-value="{{item}}"
+              bindtap="selectSubject"
+            >
+              {{item}}
+            </view>
+          </view>
+        </block>
+      </scroll-view>
+    </view>
+
+    <view class="cost-card">
+      <view>
+        <view class="cost-title">{{currentModeLabel}}</view>
+        <view class="cost-desc">{{currentModeDesc}}</view>
+      </view>
+      <view class="cost-num">{{currentModeCost}} 点</view>
+    </view>
+
+    <view class="more-options" bindtap="toggleMore">
+      <text>更多选项</text>
+      <text class="down">{{showMore ? '⌃' : '⌄'}}</text>
+    </view>
+    <view wx:if="{{showMore}}" class="more-panel card">
+      <view class="option-title">生成类型</view>
+      <view class="mode-row">
+        <view wx:for="{{generationModes}}" wx:key="id" class="mode-chip {{mode===item.id?'active':''}}" data-mode="{{item.id}}" bindtap="selectMode">{{item.shortLabel}} · {{item.cost}}点</view>
+      </view>
+      <view wx:if="{{mode==='full_paper_simulation'}}" class="simulation-rule">
+        <view class="option-title">整卷仿真页数</view>
+        <view class="mode-row no-margin">
+          <view wx:for="{{pageCountOptions}}" wx:key="*this" class="mode-chip {{simulationPageCount===item?'active':''}}" data-count="{{item}}" bindtap="selectSimulationPageCount">{{item > 5 ? '超过 5 页' : item + ' 页'}}</view>
+        </view>
+        <view class="rule-copy">系统会根据原卷的知识点、题型和难度生成新的练习卷，不会复制原题。生成内容仅供学习练习参考，请在使用前自行检查。</view>
+      </view>
+    </view>
+
+    <button
+      class="primary-btn generate-btn {{loading || (!prompt && !filePath) ? 'disabled' : ''}}"
+      loading="{{loading}}"
+      disabled="{{loading}}"
+      bindtap="handleGenerate"
+    >
+      {{loading ? '正在生成练习卷...' : generateButtonText}}
+    </button>
+
+    <view class="cost-line">本次生成将消耗 {{currentModeCost}} 点 · 当前剩余 {{points}} 点</view>
+
+    <view wx:if="{{statusType !== 'empty'}}" class="status-card {{statusType}}">
+      <view class="status-dot"></view>
+      <text>{{statusMessage}}</text>
+    </view>
+
+    <view class="upload-card {{filePath ? 'selected' : ''}}" bindtap="chooseFile">
+      <view class="upload-icon">＋</view>
+      <view class="upload-info">
+        <view class="upload-title">{{fileName || '上传资料（PDF / Word / 图片）'}}</view>
+        <view class="upload-desc">{{filePath ? '已选择资料，可用于生成或整卷仿真。点击卡片可重新选择。' : '支持 PDF、Word、图片，最多上传 10MB；整卷仿真最多 5 页。'}}</view>
+        <view wx:if="{{filePath}}" class="upload-meta-row">
+          <text>{{fileTypeLabel}}</text>
+          <text>{{fileSizeLabel}}</text>
+          <text>{{fileParseStatus === 'placeholder' ? '占位解析' : '待后端解析'}}</text>
+        </view>
+        <view wx:if="{{filePath}}" class="upload-hint">{{fileParseHint}}</view>
+      </view>
+      <view wx:if="{{filePath}}" class="remove-file" catchtap="removeFile">移除</view>
+    </view>
+    <view wx:if="{{hasLastWorksheet}}" class="last-card" bindtap="goPreview">
+      <view>
+        <view class="last-label">最近生成</view>
+        <view class="last-title">{{lastWorksheetTitle}}</view>
+        <view class="last-meta">{{lastWorksheetMeta}}</view>
+      </view>
+      <view class="last-action">去预览</view>
+    </view>
+  </view>
+
+  <bottom-tab active="home"></bottom-tab>
+</view>

@@ -1,0 +1,9 @@
+.omx/
+docs/auto-execute/codex-exec-logs/
+docs/auto-execute/runtime/
+docs/auto-execute/*.log
+docs/test/generated/
+docs/test/pic/
+docs/test/新人教版初中数学 7年级上册.pdf
+docs/**/backup/*.png
+docs/backup/

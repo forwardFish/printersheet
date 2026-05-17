@@ -1,0 +1,58 @@
+<view class="packages-page">
+  <nav-bar title="选择套餐" back="{{true}}"></nav-bar>
+  <view class="container">
+    <view class="top-card">
+      <view>
+        <view class="top-title">购买套餐或点数包</view>
+        <view class="top-desc">PDF 下载不扣点；Pro / Teacher 支持 Word；整卷仿真固定 10 点</view>
+        <view class="top-state">当前 {{points}} 点 · {{planStatusText}}</view>
+      </view>
+      <image src="/assets/crown.png" class="top-crown"></image>
+    </view>
+
+    <view class="plan-card free-card">
+      <view class="plan-head">
+        <view class="plan-name">{{freePlan.name}}</view>
+        <view class="tag">默认</view>
+      </view>
+      <view class="price-row"><text class="price">¥{{freePlan.price}}</text><text class="period">/{{freePlan.billingLabel}}</text></view>
+      <view class="benefits">
+        <view wx:for="{{freePlan.benefits}}" wx:for-item="b" wx:key="*this">{{b}}</view>
+      </view>
+    </view>
+
+    <view wx:for="{{plans}}" wx:key="id" class="plan-card {{selectedId===item.id?'selected':''}}" data-id="{{item.id}}" bindtap="selectPlan">
+      <view class="plan-head">
+        <view class="plan-name {{selectedId===item.id?'blue':''}}">{{item.name}}</view>
+        <view wx:if="{{item.recommend}}" class="tag">推荐</view>
+      </view>
+      <view class="price-row">
+        <text class="price">¥{{item.price}}</text>
+        <text class="period">/{{item.billingLabel}}</text>
+        <text wx:if="{{item.origin}}" class="origin">¥{{item.origin}}/{{item.billingLabel}}</text>
+      </view>
+      <view class="benefits">
+        <view wx:for="{{item.benefits}}" wx:for-item="b" wx:key="*this">{{b}}</view>
+      </view>
+      <view class="radio {{selectedId===item.id?'checked':''}}">{{selectedId===item.id?'✓':''}}</view>
+    </view>
+
+    <view class="section-label">点数包</view>
+    <view wx:for="{{pointPacks}}" wx:key="id" class="plan-card pack-card {{selectedId===item.id?'selected':''}}" data-id="{{item.id}}" bindtap="selectPlan">
+      <view class="plan-head">
+        <view class="plan-name {{selectedId===item.id?'blue':''}}">{{item.name}}</view>
+      </view>
+      <view class="price-row">
+        <text class="price">¥{{item.price}}</text>
+        <text class="period">/{{item.billingLabel}}</text>
+      </view>
+      <view class="benefits">
+        <view wx:for="{{item.benefits}}" wx:for-item="b" wx:key="*this">{{b}}</view>
+      </view>
+      <view class="radio {{selectedId===item.id?'checked':''}}">{{selectedId===item.id?'✓':''}}</view>
+    </view>
+
+    <button class="primary-btn upgrade-main" bindtap="goOrder">立即购买</button>
+    <view class="agreement">MVP 使用模拟购买，不接入真实微信支付密钥</view>
+  </view>
+</view>

@@ -1,0 +1,12 @@
+<view class="records-page">
+  <nav-bar title="生成记录" back="{{true}}"></nav-bar>
+  <view class="container">
+    <view wx:if="{{records.length===0}}" class="empty card">暂无生成记录</view>
+    <view wx:for="{{records}}" wx:key="id" class="record card" data-id="{{item.id}}" bindtap="openRecord">
+      <view class="record-title">{{item.title}}</view>
+      <view class="record-desc">{{item.createdAt}} · {{item.modeLabel}} · {{item.questionCount}} 题 · 消耗 {{item.pointsUsed}} 点</view>
+      <view wx:if="{{item.sourceFileName}}" class="record-desc">来源：{{item.sourceFileName}}<text wx:if="{{item.sourceFileType}}"> · {{item.sourceFileType}}</text></view>
+      <view class="record-action">再次查看</view>
+    </view>
+  </view>
+</view>

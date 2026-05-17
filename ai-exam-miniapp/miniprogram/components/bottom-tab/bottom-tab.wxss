@@ -1,0 +1,77 @@
+.tabbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 128rpx;
+  padding-bottom: env(safe-area-inset-bottom);
+  background: rgba(255,255,255,.96);
+  border-top: 1rpx solid #eef0f6;
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  z-index: 50;
+  backdrop-filter: blur(18rpx);
+}
+.tab-item {
+  width: 50%;
+  height: 104rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #7d8496;
+  font-size: 25rpx;
+  font-weight: 500;
+}
+.tab-item.active {
+  color: #5948f4;
+  font-weight: 700;
+}
+.tab-icon {
+  width: 45rpx;
+  height: 45rpx;
+  margin-bottom: 7rpx;
+  position: relative;
+}
+.home-icon::before {
+  content: '';
+  position: absolute;
+  left: 7rpx;
+  top: 15rpx;
+  width: 31rpx;
+  height: 25rpx;
+  border-radius: 7rpx;
+  background: currentColor;
+}
+.home-icon::after {
+  content: '';
+  position: absolute;
+  left: 8rpx;
+  top: 1rpx;
+  width: 30rpx;
+  height: 30rpx;
+  border-radius: 7rpx;
+  background: currentColor;
+  transform: rotate(45deg);
+}
+.user-icon::before {
+  content: '';
+  position: absolute;
+  left: 13rpx;
+  top: 3rpx;
+  width: 20rpx;
+  height: 20rpx;
+  border: 5rpx solid currentColor;
+  border-radius: 50%;
+}
+.user-icon::after {
+  content: '';
+  position: absolute;
+  left: 6rpx;
+  bottom: 1rpx;
+  width: 32rpx;
+  height: 21rpx;
+  border: 5rpx solid currentColor;
+  border-radius: 22rpx 22rpx 8rpx 8rpx;
+}

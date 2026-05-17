@@ -1,0 +1,36 @@
+<view class="order-page">
+  <nav-bar title="确认订单" back="{{true}}"></nav-bar>
+  <view class="container">
+    <view class="product-card">
+      <image src="/assets/crown.png" class="product-icon"></image>
+      <view class="product-info">
+        <view class="product-title">{{plan.memberName}}</view>
+        <view class="product-sub">{{plan.productType === 'point_pack' ? '购买后点数立即到账' : '月卡权益：31 天'}}</view>
+      </view>
+      <view class="product-price">¥{{plan.price}}</view>
+      <view class="select-dot">✓</view>
+    </view>
+
+    <view class="order-info card">
+      <view class="section-title">订单信息</view>
+      <view class="row"><text>商品金额</text><text>¥{{plan.price}}</text></view>
+      <view class="row"><text>发放点数</text><text>{{plan.points}} 点</text></view>
+      <view class="row"><text>权益变更</text><text>{{plan.productType === 'point_pack' ? '不改变当前套餐' : '设置套餐并顺延 31 天'}}</text></view>
+      <view class="divider"></view>
+      <view class="pay-row"><text>实付款</text><text class="pay-price">¥{{plan.price}}</text></view>
+    </view>
+
+    <view class="pay-box card">
+      <view class="section-title">支付方式</view>
+      <view class="pay-method active">
+        <view class="wechat-icon">●</view>
+        <text>模拟微信支付</text><text class="recommend">MVP</text>
+        <view class="pay-check">✓</view>
+      </view>
+      <view class="safe-tip">本页只模拟购买成功并写入本地购买记录，不调用真实支付。</view>
+    </view>
+
+    <button class="primary-btn pay-btn" loading="{{paying}}" disabled="{{paying}}" bindtap="pay">立即支付 ¥{{plan.price}}</button>
+    <view class="agreement">支付即同意本次 MVP 模拟购买流程</view>
+  </view>
+</view>

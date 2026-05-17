@@ -1,0 +1,50 @@
+<view class="safe-page my-page">
+  <nav-bar title="我的"></nav-bar>
+  <view class="container">
+    <view class="user-box" bindtap="ensureLogin">
+      <image src="{{avatarUrl}}" class="avatar {{isLoggedIn ? '' : 'guest'}}"></image>
+      <view>
+        <view class="nickname">{{displayName}}</view>
+        <view wx:if="{{isLoggedIn && displayId}}" class="uid">ID: {{displayId}}</view>
+        <view wx:else class="uid tap-login">{{isLoggedIn ? '' : '点击登录'}}</view>
+      </view>
+    </view>
+
+    <view class="member-card">
+      <image src="/assets/crown.png" class="member-crown"></image>
+      <view class="member-info">
+        <view class="member-title">{{memberName}}</view>
+        <view class="member-date">{{memberExpireText}}</view>
+        <view class="member-tip">{{freeTip}}</view>
+      </view>
+      <button class="check-btn" bindtap="goPackages">查看权益</button>
+    </view>
+
+    <view class="points-card">
+      <view>
+        <view class="points-label">剩余点数</view>
+        <view class="points-num">{{displayPoints}} <text>点</text></view>
+      </view>
+      <button class="buy-btn" bindtap="goPackages">购买点数</button>
+    </view>
+
+    <view class="share-card card">
+      <view class="share-title">赚点数</view>
+      <view class="share-desc">每天分享后自动获得 1 点，每天限 1 次。好友通过你的链接首次购买成功，你获得 5 点。</view>
+      <view class="share-actions">
+        <button class="share-btn reward" open-type="share" bindtap="markShareIntent">分享得 1 点</button>
+      </view>
+      <view class="invite-link" bindtap="copyInviteLink">复制邀请链接</view>
+      <view wx:if="{{shareStatusText}}" class="share-status">{{shareStatusText}}</view>
+    </view>
+
+    <view class="list-card card">
+      <view class="list-item" bindtap="goRecords"><view class="list-icon">≡</view><text>生成记录</text><text class="chev">›</text></view>
+      <view class="line"></view>
+      <view class="list-item" bindtap="goPurchases"><view class="list-icon bag">◡</view><text>购买记录</text><text class="chev">›</text></view>
+    </view>
+
+    <image src="/assets/promo-banner-clean.png" class="promo" mode="aspectFill" bindtap="goHome"></image>
+  </view>
+  <bottom-tab active="my"></bottom-tab>
+</view>

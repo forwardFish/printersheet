@@ -1,0 +1,6 @@
+<view class="nav {{transparent ? 'transparent' : ''}}" style="padding-top: {{statusBarHeight}}px; height: {{statusBarHeight + navHeight}}px;">
+  <view class="nav-inner" style="height: {{navHeight}}px; padding-right: {{menuWidth + menuRight + 8}}px;">
+    <view wx:if="{{back}}" class="back" bindtap="goBack">‹</view>
+    <view class="title">{{title}}</view>
+  </view>
+</view>

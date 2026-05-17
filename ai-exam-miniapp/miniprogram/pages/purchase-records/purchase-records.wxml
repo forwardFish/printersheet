@@ -1,0 +1,12 @@
+<view class="records-page">
+  <nav-bar title="购买记录" back="{{true}}"></nav-bar>
+  <view class="container">
+    <view wx:if="{{records.length===0}}" class="empty card">暂无购买记录</view>
+    <view wx:for="{{records}}" wx:key="id" class="record card">
+      <view class="record-title">{{item.title}}</view>
+      <view class="record-desc">{{item.paidAt}} · ¥{{item.price}} · 增加 {{item.points}} 点</view>
+      <view class="record-desc">套餐：{{item.planName}} · 状态：{{item.statusLabel}}</view>
+      <view wx:if="{{item.expireAt}}" class="record-desc">有效期至：{{item.expireAt}}</view>
+    </view>
+  </view>
+</view>

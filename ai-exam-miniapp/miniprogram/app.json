@@ -1,0 +1,31 @@
+{
+  "pages": [
+    "pages/index/index",
+    "pages/preview/preview",
+    "pages/login/login",
+    "pages/packages/packages",
+    "pages/order/order",
+    "pages/my/my",
+    "pages/more/more",
+    "pages/records/records",
+    "pages/purchase-records/purchase-records"
+  ],
+  "window": {
+    "navigationStyle": "custom",
+    "backgroundTextStyle": "light",
+    "backgroundColor": "#ffffff"
+  },
+  "networkTimeout": {
+    "request": 300000,
+    "connectSocket": 300000,
+    "uploadFile": 300000,
+    "downloadFile": 300000
+  },
+  "usingComponents": {
+    "nav-bar": "/components/nav-bar/nav-bar",
+    "bottom-tab": "/components/bottom-tab/bottom-tab"
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json",
+  "lazyCodeLoading": "requiredComponents"
+}

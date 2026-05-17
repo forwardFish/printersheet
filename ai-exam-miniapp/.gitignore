@@ -1,0 +1,9 @@
+server/node_modules/
+server/files/
+server/uploads/
+server/.env
+server/.env.*
+!server/.env.example
+project.private.config.json
+miniprogram/project.private.config.json
+npm-debug.log*

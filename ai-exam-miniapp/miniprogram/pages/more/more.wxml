@@ -1,0 +1,22 @@
+<view class="safe-page more-page">
+  <nav-bar title="更多"></nav-bar>
+  <view class="container">
+    <view class="more-card card">
+      <view class="more-item" bindtap="shareApp"><text>分享小程序</text><text>›</text></view>
+      <view class="line"></view>
+      <view class="more-item"><text>用户协议</text><text>›</text></view>
+      <view class="line"></view>
+      <view class="more-item"><text>隐私政策</text><text>›</text></view>
+      <view class="line"></view>
+      <view class="more-item"><text>联系客服</text><text>›</text></view>
+      <view class="line"></view>
+      <view class="more-item"><text>关于我们</text><text>›</text></view>
+    </view>
+    <view class="about card">
+      <image src="/assets/logo-distinctive.png" class="about-logo"></image>
+      <view class="about-title">AI出题小助手</view>
+      <view class="about-desc">输入知识点或上传资料，生成可打印 PDF / Word 练习卷。</view>
+    </view>
+  </view>
+  <bottom-tab active="more"></bottom-tab>
+</view>

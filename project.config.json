@@ -1,0 +1,40 @@
+{
+  "description": "printersheet root import config",
+  "miniprogramRoot": "ai-exam-miniapp/miniprogram/",
+  "compileType": "miniprogram",
+  "appid": "touristappid",
+  "projectname": "printersheet-ai-exam-helper",
+  "setting": {
+    "es6": true,
+    "postcss": true,
+    "minified": true,
+    "uglifyFileName": false,
+    "enhance": true,
+    "packNpmRelationList": [],
+    "babelSetting": {
+      "ignore": [],
+      "disablePlugins": [],
+      "outputPath": ""
+    },
+    "useCompilerPlugins": false,
+    "minifyWXML": true,
+    "minifyWXSS": true,
+    "urlCheck": false,
+    "coverView": true
+  },
+  "packOptions": {
+    "ignore": [
+      {
+        "type": "folder",
+        "value": "docs"
+      },
+      {
+        "type": "folder",
+        "value": "ai-exam-miniapp/server"
+      }
+    ],
+    "include": []
+  },
+  "simulatorPluginLibVersion": {},
+  "editorSetting": {}
+}
