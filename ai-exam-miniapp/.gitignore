@@ -1,6 +1,9 @@
 server/node_modules/
 server/files/
 server/uploads/
+server/.data/
+server/.logs/
+server/*.log
 server/.env
 server/.env.*
 !server/.env.example

@@ -2,12 +2,14 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
+import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
 import PDFDocument from 'pdfkit'
 import { PDFParse } from 'pdf-parse'
 import { Document, Packer, Paragraph, TextRun } from 'docx'
 import mammoth from 'mammoth'
+import JSZip from 'jszip'
 
 process.env.NODE_ENV = 'test'
 process.env.PUBLIC_BASE_URL = 'http://127.0.0.1:8787'
@@ -19,9 +21,9 @@ const { normalizeWorksheet, pointsFor, validateWorksheet } = await import('../sr
 const { createMockWorksheet } = await import('../src/lib/mockWorksheet.js')
 const { assertAiWorksheetPayloadSchema, assertUploadedSourceUsage, assertWorksheetQuality, generateFullPaperWithAI, generateWorksheetWithAI } = await import('../src/lib/ai.js')
 const { resolveAiProvider } = await import('../src/lib/aiProviders.js')
-const { buildPdf } = await import('../src/lib/buildPdf.js')
+const { buildPdf, inferQuestionDiagramSpec } = await import('../src/lib/buildPdf.js')
 const { buildDocx } = await import('../src/lib/buildDocx.js')
-const { toDisplayMath } = await import('../src/lib/mathFormat.js')
+const { toDisplayChemistry, toDisplayMath } = await import('../src/lib/mathFormat.js')
 
 async function cleanGeneratedFiles() {
   for (const dir of [path.resolve('files'), path.resolve('uploads')]) {
@@ -33,6 +35,10 @@ async function cleanGeneratedFiles() {
 
 test.beforeEach(async () => {
   process.env.AI_MOCK_MODE = 'true'
+  process.env.DB_PROVIDER = 'local'
+  process.env.FILE_PROVIDER = 'local'
+  process.env.PAYMENT_PROVIDER = 'mock'
+  process.env.LOCAL_DB_PATH = path.join(os.tmpdir(), `printersheet-dev-db-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.json`)
   delete process.env.AI_API_KEY
   delete process.env.AI_PROVIDER
   delete process.env.DEEPSEEK_API_KEY
@@ -41,6 +47,9 @@ test.beforeEach(async () => {
   delete process.env.AI_MODEL
   delete process.env.DEEPSEEK_MODEL
   delete process.env.AI_FALLBACK_TO_MOCK
+  delete process.env.AI_REQUEST_TIMEOUT_MS
+  delete process.env.GENERATION_JOB_TIMEOUT_MS
+  delete process.env.GENERATION_JOB_CONCURRENCY
   await cleanGeneratedFiles()
 })
 test.afterEach(cleanGeneratedFiles)
@@ -63,6 +72,18 @@ async function postJson(url, body, headers = {}) {
     body: JSON.stringify(body)
   })
   return res
+}
+
+async function login(base, mockOpenid = `openid-${Date.now()}-${Math.random().toString(36).slice(2)}`) {
+  const res = await postJson(`${base}/api/auth/wechat-login`, {
+    mockOpenid,
+    userInfo: { nickName: 'Unit User', avatarUrl: 'https://example.test/avatar.png' }
+  })
+  assert.equal(res.status, 200)
+  const data = await res.json()
+  assert.equal(data.success, true)
+  assert.ok(data.token)
+  return { ...data, auth: { authorization: `Bearer ${data.token}` }, mockOpenid }
 }
 
 async function makeSamplePdf(tmpDir) {
@@ -103,6 +124,16 @@ async function uploadGenerate(url, filePath, fields) {
   for (const [key, value] of Object.entries(fields)) form.append(key, String(value))
   form.append('file', new Blob([await fsp.readFile(filePath)]), fields.uploadFileName || path.basename(filePath))
   return fetch(url, { method: 'POST', body: form })
+}
+
+async function waitForGenerationJob(base, jobId) {
+  for (let i = 0; i < 20; i += 1) {
+    const res = await fetch(`${base}/api/worksheet/jobs/${jobId}`)
+    const data = await res.json()
+    if (data.status === 'succeeded' || data.status === 'failed') return data
+    await new Promise(resolve => setTimeout(resolve, 50))
+  }
+  throw new Error(`generation job ${jobId} did not finish`)
 }
 
 async function readGeneratedPdfText(fileNameOrUrl) {
@@ -183,6 +214,32 @@ test('text generation returns worksheet, cost, source, and file urls', async t =
   assert.ok(data.worksheet.questions.every(q => q.question && q.answer && q.explanation))
 })
 
+test('async generation returns a job immediately and completes in background', async t => {
+  const server = await listen(createApp())
+  t.after(() => server.close())
+  const res = await postJson(`${baseUrl(server)}/api/worksheet/generate?async=1`, {
+    prompt: '生成 5 道初一数学方程题',
+    grade: '初一',
+    subject: '数学',
+    mode: 'practice',
+    questionCount: 5
+  })
+  assert.equal(res.status, 202)
+  const created = await res.json()
+  assert.equal(created.success, true)
+  assert.equal(created.async, true)
+  assert.ok(created.jobId)
+  assert.ok(['queued', 'running'].includes(created.status))
+
+  const done = await waitForGenerationJob(baseUrl(server), created.jobId)
+  assert.equal(done.success, true)
+  assert.equal(done.status, 'succeeded')
+  assert.equal(done.progress, 100)
+  assert.ok(done.result.worksheet)
+  assert.ok(done.result.pdfUrl)
+  assert.equal(done.result.worksheet.questions.length, 5)
+})
+
 test('worksheet schema normalizes legacy mode and mock generator is stable', () => {
   const worksheet = normalizeWorksheet(createMockWorksheet('生成 10 道初一数学一元一次方程中等题，带答案解析，适合打印。', {
     mode: 'paper',
@@ -227,6 +284,80 @@ test('lightweight math formatting displays powers as superscripts', () => {
   assert.equal(toDisplayMath('2x^3 y^{b+1}'), '2x³ yᵇ⁺¹')
   assert.equal(toDisplayMath('p^m=4'), 'pᵐ = 4')
   assert.equal(toDisplayMath('2a^2b'), '2a²b')
+  assert.equal(toDisplayMath('AB = 12\\text{ cm}'), 'AB = 12 cm')
+})
+
+test('chemistry formatting displays formulas and valence notation', () => {
+  assert.equal(toDisplayChemistry('\\text{ cm}'), 'cm')
+  assert.equal(toDisplayChemistry('H2'), 'H\u2082')
+  assert.equal(toDisplayChemistry('FeCl2'), 'FeCl\u2082')
+  assert.equal(toDisplayChemistry('Mg^+2'), 'Mg\u00B2\u207A')
+  assert.equal(toDisplayChemistry('CaCO3 + 2HCl = CaCl2 + H2O + CO2 \\uparrow'), 'CaCO\u2083 + 2HCl = CaCl\u2082 + H\u2082O + CO\u2082 \u2191')
+  assert.equal(
+    toDisplayChemistry('\\mathrm{2H2O \\xlongequal{通电} 2H2 \\uparrow + O2 \\uparrow}'),
+    '2H\u2082O 通电\u2192 2H\u2082 \u2191 + O\u2082 \u2191'
+  )
+})
+
+test('PDF export infers missing diagram for segment ratio questions', () => {
+  const spec = inferQuestionDiagramSpec({
+    number: 5,
+    question: '如图，已知线段AB=12cm，点C是AB的中点，点D在CB上，且CD:DB=1:2。求线段AD的长度。',
+    questionLatex: 'AB = 12\\text{ cm}, CD:DB = 1:2'
+  })
+
+  assert.equal(spec.type, 'generic_geometry')
+  assert.deepEqual(spec.labels, ['A', 'C', 'D', 'B'])
+  assert.deepEqual(spec.segments, [['A', 'B']])
+  assert.deepEqual(spec.points.C, [120, 42])
+  assert.deepEqual(spec.points.D, [160, 42])
+})
+
+test('PDF and DOCX exports preserve existing preview diagram specs', async () => {
+  const worksheet = normalizeWorksheet({
+    title: '\u521d\u4e09\u51e0\u4f55\u7ec3\u4e60\u5377',
+    grade: '\u521d\u4e09',
+    subject: '\u6570\u5b66',
+    mode: 'practice',
+    questions: [{
+      number: 1,
+      section: '\u9009\u62e9\u9898',
+      type: '\u9009\u62e9\u9898',
+      question: '\u5982\u56fe\uff0c\u5728\u2299O\u4e2d\uff0cAB\u662f\u76f4\u5f84\uff0cC\u3001D\u662f\u5706\u4e0a\u4e24\u70b9\uff0c\u8fde\u63a5AC\u3001AD\u3001BC\u3001BD\u3002',
+      options: ['A. 35\u00b0', 'B. 45\u00b0', 'C. 55\u00b0', 'D. 65\u00b0'],
+      answer: 'B',
+      explanation: '\u540c\u5f27\u6240\u5bf9\u7684\u5706\u5468\u89d2\u76f8\u7b49\u3002',
+      diagramSpec: {
+        type: 'generic_geometry',
+        points: { A: [0, 60], O: [120, 60], B: [240, 60], D: [35, 0], C: [180, 145] },
+        segments: [['A', 'B'], ['A', 'D'], ['D', 'B'], ['A', 'C'], ['C', 'B']],
+        labels: ['A', 'O', 'B', 'C', 'D']
+      }
+    }]
+  })
+  const q = worksheet.questions[0]
+
+  assert.equal(inferQuestionDiagramSpec(q).type, 'generic_geometry')
+
+  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'printersheet-diagram-export-'))
+  const pdfPath = path.join(dir, 'diagram.pdf')
+  const docxPath = path.join(dir, 'diagram.docx')
+  await buildPdf({ worksheet, outputPath: pdfPath, watermark: false })
+  await buildDocx({ worksheet, outputPath: docxPath })
+
+  assert.ok((await fsp.stat(pdfPath)).size > 0)
+  const zip = await JSZip.loadAsync(await fsp.readFile(docxPath))
+  assert.ok(zip.file(/word\/media\/.*\.svg$/).length >= 1)
+  assert.match(await zip.file('word/document.xml').async('string'), /<w:drawing>/)
+})
+
+test('PDF diagram inference does not use geometry fallback for algebra questions by number', () => {
+  const spec = inferQuestionDiagramSpec({
+    number: 5,
+    question: 'Solve 3x + 4 = 19.',
+    skill: 'linear equation'
+  })
+  assert.equal(spec, null)
 })
 
 test('AI config uses explicit prompt, schema validation, and model env vars', async () => {
@@ -574,6 +705,33 @@ test('worksheet quality gate rejects repeated or demo content', () => {
   ] }), /重复/)
 })
 
+test('worksheet quality gate enforces diagram policy only for diagram-required geometry', () => {
+  assert.doesNotThrow(() => assertWorksheetQuality({ questions: [{
+    number: 1,
+    question: '一个三角形两边长分别为 3 和 6，判断第三边可能取值。',
+    skill: '三角形三边关系',
+    answer: '5',
+    explanation: '第三边长度应大于 3 且小于 9。'
+  }] }))
+
+  assert.throws(() => assertWorksheetQuality({ questions: [{
+    number: 1,
+    question: '如图，在正方体 ABCD-A1B1C1D1 中，点 E 为棱 BB1 的中点，求直线 AE 与平面 A1B1C1D1 所成角。',
+    skill: '立体几何',
+    answer: '略',
+    explanation: '需要结合空间图形判断。'
+  }] }), /requires diagramSpec/)
+
+  assert.throws(() => assertWorksheetQuality({ questions: [{
+    number: 1,
+    question: 'Solve 3x + 4 = 19.',
+    skill: 'linear equation',
+    answer: 'x=5',
+    explanation: 'Subtract 4, then divide by 3.',
+    diagramSpec: { type: 'template', templateId: 'triangle_ruler_overlap_angle', labels: [] }
+  }] }), /not diagram-required/)
+})
+
 test('upload source usage gate rejects worksheets that ignore parsed material', () => {
   assert.throws(
     () => assertUploadedSourceUsage({ questions: [{ number: 1, question: '7x=21', answer: '3', explanation: '略' }] }, '合并同类项 移项 系数化为1'),
@@ -824,9 +982,14 @@ test('export endpoints return binary files by default and JSON urls on request',
   assert.ok(freePdfText.includes('free-watermark-tiles-per-page=6'), 'free PDF should mark six visible watermark tiles per page')
   assert.equal(await getGeneratedPdfPageCount(data.pdfUrl), 2, 'single-question worksheet should only have question page + answer page')
 
-  const memberUrlRes = await postJson(`${baseUrl(server)}/api/export/pdf?returnUrl=1`, { worksheet, watermark: false }, { accept: 'application/json' })
+  const memberUrlRes = await postJson(`${baseUrl(server)}/api/export/pdf?returnUrl=1`, { worksheet, watermark: false }, {
+    accept: 'application/json',
+    'x-plan-code': 'pro',
+    'x-plan-expires-at': new Date(Date.now() + 31 * 24 * 3600 * 1000).toISOString()
+  })
   const memberData = await memberUrlRes.json()
   assert.equal(memberData.success, true)
+  assert.equal(memberData.watermark, false)
   assert.ok(memberData.pdfUrl.endsWith('.pdf'))
   const memberPdfText = await readGeneratedPdfText(memberData.pdfUrl)
   assertFreeWatermarkMarker(memberPdfText, false)
@@ -937,21 +1100,267 @@ test('generation estimate and me endpoints expose V1 entitlement contract', asyn
     canGenerate: false
   })
 
-  const expires = new Date(Date.now() + 31 * 24 * 3600 * 1000).toISOString()
-  const me = await fetch(`${baseUrl(server)}/api/me`, {
-    headers: {
-      'x-plan-code': 'pro',
-      'x-plan-expires-at': expires,
-      'x-points-balance': '72'
-    }
-  })
+  const session = await login(baseUrl(server), 'me-contract-user')
+  const orderRes = await postJson(`${baseUrl(server)}/api/orders/create`, { productCode: 'pro_monthly' }, session.auth)
+  const order = (await orderRes.json()).order
+  await postJson(`${baseUrl(server)}/api/dev/pay/mock-success`, { orderNo: order.orderNo }, session.auth)
+
+  const me = await fetch(`${baseUrl(server)}/api/me`, { headers: session.auth })
   assert.equal(me.status, 200)
   const data = await me.json()
   assert.equal(data.planCode, 'pro')
-  assert.equal(data.pointsBalance, 72)
+  assert.equal(data.pointsBalance, 83)
   assert.equal(data.isPaid, true)
   assert.equal(data.canDownloadWord, true)
   assert.equal(data.canRemoveWatermark, true)
+})
+
+test('phase 1 login creates local user account and grants initial points once', async t => {
+  const server = await listen(createApp())
+  t.after(() => server.close())
+  const base = baseUrl(server)
+
+  const first = await login(base, 'phase1-login-user')
+  assert.equal(first.firstLogin, true)
+  let points = await (await fetch(`${base}/api/points`, { headers: first.auth })).json()
+  assert.equal(points.pointsBalance, 3)
+
+  const second = await login(base, 'phase1-login-user')
+  assert.equal(second.firstLogin, false)
+  points = await (await fetch(`${base}/api/points`, { headers: second.auth })).json()
+  assert.equal(points.pointsBalance, 3)
+
+  const persisted = JSON.parse(await fsp.readFile(process.env.LOCAL_DB_PATH, 'utf8'))
+  assert.equal(persisted.users.length, 1)
+  assert.equal(persisted.point_accounts[0].balance, 3)
+  assert.equal(persisted.point_ledger.filter(item => item.source === 'new_user_bonus').length, 1)
+})
+
+test('phase 1 protected APIs require token', async t => {
+  const server = await listen(createApp())
+  t.after(() => server.close())
+
+  const res = await fetch(`${baseUrl(server)}/api/points`)
+  assert.equal(res.status, 401)
+})
+
+test('phase 1 orders and mock payments are idempotent', async t => {
+  const server = await listen(createApp())
+  t.after(() => server.close())
+  const base = baseUrl(server)
+  const session = await login(base, 'phase1-payment-user')
+
+  const createRes = await postJson(`${base}/api/orders/create`, { productCode: 'small_pack' }, session.auth)
+  assert.equal(createRes.status, 200)
+  const created = await createRes.json()
+  assert.equal(created.order.status, 'pending')
+
+  const payRes = await postJson(`${base}/api/dev/pay/mock-success`, { orderNo: created.order.orderNo }, session.auth)
+  assert.equal(payRes.status, 200)
+  assert.equal((await payRes.json()).order.status, 'paid')
+  let points = await (await fetch(`${base}/api/points`, { headers: session.auth })).json()
+  assert.equal(points.pointsBalance, 28)
+
+  await postJson(`${base}/api/dev/pay/mock-success`, { orderNo: created.order.orderNo }, session.auth)
+  points = await (await fetch(`${base}/api/points`, { headers: session.auth })).json()
+  assert.equal(points.pointsBalance, 28)
+})
+
+test('phase 1 worksheet generation deducts points, persists records and is requestId idempotent', async t => {
+  const server = await listen(createApp())
+  t.after(() => server.close())
+  const base = baseUrl(server)
+  const session = await login(base, 'phase1-generate-user')
+  const payload = {
+    requestId: 'generate-once',
+    prompt: 'generate five equations',
+    grade: 'Grade 7',
+    subject: 'Math',
+    difficulty: 'medium',
+    mode: 'practice',
+    questionCount: 5
+  }
+
+  const firstRes = await postJson(`${base}/api/worksheets/generate`, payload, session.auth)
+  assert.equal(firstRes.status, 200)
+  const first = await firstRes.json()
+  assert.equal(first.success, true)
+  assert.ok(first.worksheetId)
+  assert.equal(first.pointsUsed, 1)
+
+  const secondRes = await postJson(`${base}/api/worksheets/generate`, payload, session.auth)
+  assert.equal(secondRes.status, 200)
+  const second = await secondRes.json()
+  assert.equal(second.worksheetId, first.worksheetId)
+
+  const points = await (await fetch(`${base}/api/points`, { headers: session.auth })).json()
+  assert.equal(points.pointsBalance, 2)
+  const persisted = JSON.parse(await fsp.readFile(process.env.LOCAL_DB_PATH, 'utf8'))
+  assert.equal(persisted.worksheet_records.length, 1)
+  assert.equal(persisted.file_objects.filter(item => item.recordId === first.worksheetId).length, 2)
+
+  const pdf = await fetch(`${base}${first.pdfUrl}`, { headers: session.auth })
+  assert.equal(pdf.status, 200)
+  assert.ok((await pdf.arrayBuffer()).byteLength > 1000)
+})
+
+test('generation job queue completes 10 real async jobs for different users', async t => {
+  process.env.GENERATION_JOB_CONCURRENCY = '3'
+  const server = await listen(createApp())
+  t.after(() => server.close())
+  const base = baseUrl(server)
+  const sessions = await Promise.all(Array.from({ length: 10 }, (_, index) => login(base, `queue-user-${index + 1}`)))
+
+  const created = await Promise.all(sessions.map((session, index) => postJson(`${base}/api/generation-jobs`, {
+    requestId: `queue-request-${index + 1}`,
+    prompt: `生成 5 道初一数学一元一次方程中等题，第 ${index + 1} 组`,
+    grade: '初一',
+    subject: '数学',
+    difficulty: '中等',
+    mode: 'normal',
+    questionCount: 5
+  }, session.auth).then(async res => {
+    assert.equal(res.status, 202)
+    const data = await res.json()
+    assert.equal(data.success, true)
+    assert.ok(data.job.id)
+    return { session, jobId: data.job.id }
+  })))
+
+  const done = []
+  const deadline = Date.now() + 30000
+  while (done.length < created.length && Date.now() < deadline) {
+    done.length = 0
+    for (const item of created) {
+      const res = await fetch(`${base}/api/generation-jobs/${item.jobId}`, { headers: item.session.auth })
+      assert.equal(res.status, 200)
+      const data = await res.json()
+      if (data.job.status === 'failed') assert.fail(data.job.errorMessage || data.job.message)
+      if (data.job.status === 'succeeded') done.push(data.job)
+    }
+    if (done.length < created.length) await new Promise(resolve => setTimeout(resolve, 200))
+  }
+
+  assert.equal(done.length, 10)
+  assert.ok(done.every(job => job.result?.worksheetId && job.worksheetRecordId === job.result.worksheetId))
+
+  const persisted = JSON.parse(await fsp.readFile(process.env.LOCAL_DB_PATH, 'utf8'))
+  assert.equal(persisted.generation_jobs.length, 10)
+  assert.equal(persisted.generation_jobs.filter(job => job.status === 'succeeded').length, 10)
+  assert.equal(persisted.worksheet_records.length, 10)
+  assert.equal(persisted.file_objects.length, 20)
+})
+
+test('generation job timeout fails persisted job and refunds points', async t => {
+  const aiServer = http.createServer(() => {})
+  await listen(aiServer)
+  t.after(() => {
+    aiServer.closeAllConnections?.()
+    aiServer.close()
+  })
+
+  process.env.AI_MOCK_MODE = 'false'
+  process.env.AI_PROVIDER = 'openaiCompatible'
+  process.env.AI_API_KEY = 'unit-test-key'
+  process.env.AI_BASE_URL = baseUrl(aiServer)
+  process.env.AI_REQUEST_TIMEOUT_MS = '60000'
+  process.env.GENERATION_JOB_TIMEOUT_MS = '50'
+
+  const server = await listen(createApp())
+  t.after(() => server.close())
+  const base = baseUrl(server)
+  const session = await login(base, 'job-timeout-user')
+  const requestId = 'job-timeout-refund'
+
+  const createdRes = await postJson(`${base}/api/generation-jobs`, {
+    requestId,
+    prompt: '生成 5 道初一语文普通练习题',
+    grade: '初一',
+    subject: '语文',
+    difficulty: '中等',
+    mode: 'practice',
+    questionCount: 5
+  }, session.auth)
+  assert.equal(createdRes.status, 202)
+  const created = await createdRes.json()
+  assert.equal(created.success, true)
+  assert.ok(created.job.id)
+
+  let failedJob = null
+  const deadline = Date.now() + 5000
+  while (!failedJob && Date.now() < deadline) {
+    const res = await fetch(`${base}/api/generation-jobs/${created.job.id}`, { headers: session.auth })
+    assert.equal(res.status, 200)
+    const data = await res.json()
+    if (data.job.status === 'failed') failedJob = data.job
+    else await new Promise(resolve => setTimeout(resolve, 50))
+  }
+
+  assert.ok(failedJob, 'job should fail after the backend timeout')
+  assert.equal(failedJob.progress, 100)
+  assert.equal(failedJob.message, '生成超时，请重新生成。')
+  assert.equal(failedJob.errorMessage, '生成超时，请重新生成。')
+
+  const points = await (await fetch(`${base}/api/points`, { headers: session.auth })).json()
+  assert.equal(points.pointsBalance, 3)
+  const persisted = JSON.parse(await fsp.readFile(process.env.LOCAL_DB_PATH, 'utf8'))
+  assert.equal(persisted.generation_jobs.find(job => job.requestId === requestId).status, 'failed')
+  assert.ok(persisted.point_ledger.some(item => item.type === 'consume' && item.requestId === requestId))
+  assert.ok(persisted.point_ledger.some(item => item.type === 'refund' && item.requestId === requestId))
+})
+
+test('phase 1 worksheet generation blocks insufficient points and refunds failed generation', async t => {
+  const server = await listen(createApp())
+  t.after(() => server.close())
+  const base = baseUrl(server)
+  const session = await login(base, 'phase1-failure-user')
+
+  const insufficient = await postJson(`${base}/api/worksheets/generate`, {
+    requestId: 'too-expensive',
+    prompt: 'full paper',
+    mode: 'full_paper_simulation',
+    questionCount: 10
+  }, session.auth)
+  assert.equal(insufficient.status, 402)
+
+  process.env.AI_MOCK_MODE = 'false'
+  delete process.env.AI_API_KEY
+  delete process.env.DEEPSEEK_API_KEY
+  const failed = await postJson(`${base}/api/worksheets/generate`, {
+    requestId: 'will-refund',
+    prompt: 'real generation without key',
+    mode: 'practice',
+    questionCount: 5
+  }, session.auth)
+  assert.equal(failed.status, 500)
+  process.env.AI_MOCK_MODE = 'true'
+
+  const points = await (await fetch(`${base}/api/points`, { headers: session.auth })).json()
+  assert.equal(points.pointsBalance, 3)
+  const persisted = JSON.parse(await fsp.readFile(process.env.LOCAL_DB_PATH, 'utf8'))
+  assert.ok(persisted.point_ledger.some(item => item.type === 'consume' && item.requestId === 'will-refund'))
+  assert.ok(persisted.point_ledger.some(item => item.type === 'refund' && item.requestId === 'will-refund'))
+})
+
+test('phase 1 users cannot access another user worksheet or file', async t => {
+  const server = await listen(createApp())
+  t.after(() => server.close())
+  const base = baseUrl(server)
+  const owner = await login(base, 'phase1-owner')
+  const other = await login(base, 'phase1-other')
+
+  const createdRes = await postJson(`${base}/api/worksheets/generate`, {
+    requestId: 'owner-record',
+    prompt: 'generate five equations',
+    mode: 'practice',
+    questionCount: 5
+  }, owner.auth)
+  const created = await createdRes.json()
+
+  const detail = await fetch(`${base}/api/worksheets/${created.worksheetId}`, { headers: other.auth })
+  assert.equal(detail.status, 404)
+  const download = await fetch(`${base}${created.pdfUrl}`, { headers: other.auth })
+  assert.equal(download.status, 404)
 })
 
 test('AI config endpoint exposes active model without API key', async t => {

@@ -7,9 +7,15 @@
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
-    "test": "node --test"
+    "test": "node --test",
+    "cloudbase:init": "node scripts/cloudbase-init.js",
+    "smoke:local": "node scripts/smoke-all.js",
+    "smoke:cloudbase": "node scripts/smoke-cloudbase.js",
+    "smoke:cloudbase:e2e": "node scripts/smoke-cloudbase-e2e.js"
   },
   "dependencies": {
+    "@cloudbase/manager-node": "^5.4.0",
+    "@cloudbase/node-sdk": "^3.18.1",
     "cors": "^2.8.5",
     "docx": "^9.2.0",
     "dotenv": "^16.4.7",

@@ -1,0 +1,17 @@
+{
+  "name": "printersheet-ui-visual",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "capture": "node scripts/capture-wechat.mjs",
+    "compare": "node scripts/compare-pixelmatch.mjs",
+    "verify": "node scripts/capture-wechat.mjs && node scripts/compare-pixelmatch.mjs"
+  },
+  "dependencies": {
+    "miniprogram-automator": "^0.12.1",
+    "pixelmatch": "^7.1.0",
+    "pngjs": "^7.0.0",
+    "sharp": "^0.33.5"
+  }
+}

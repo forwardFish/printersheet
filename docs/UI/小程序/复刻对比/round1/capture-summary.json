@@ -1,0 +1,24 @@
+{
+  "status": "BLOCKED_BY_ENVIRONMENT",
+  "projectPath": "D:\\lyh\\agent\\agent-frame\\printersheet\\project.config.json",
+  "cliPath": "D:\\Program Files (x86)\\Tencent\\微信web开发者工具\\cli.bat",
+  "port": 9436,
+  "capturedAt": "2026-05-18T09:33:09.723Z",
+  "captures": [],
+  "pending": [
+    {
+      "id": "home-my-transition-composite",
+      "reference": "docs/UI/小程序/ChatGPT Image 2026年5月17日 21_13_18 (3).png",
+      "reason": "参考图是首页上半屏与我的页遮罩态下半屏的拼接/过渡画面，不是一个稳定小程序路由状态。"
+    }
+  ],
+  "errors": [
+    "Failed connecting to ws://127.0.0.1:9436, check if target project window is opened with automation enabled"
+  ],
+  "quitExitCode": 0,
+  "quitStdout": "",
+  "quitStderr": "- initialize\n\n√ IDE server has started, listening on http://127.0.0.1:27203\n- preparing\n√ quit\n",
+  "autoExitCode": null,
+  "autoStdout": "",
+  "autoStderr": "- initialize\n\n√ IDE server has started, listening on http://127.0.0.1:27203\n- preparing\n- Fetching AppID () permissions\n√ Using AppID: touristappid\n"
+}

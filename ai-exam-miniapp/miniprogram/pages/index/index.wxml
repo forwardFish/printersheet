@@ -1,24 +1,20 @@
 <view class="safe-page index-page">
-  <nav-bar title="AI 出题小助手"></nav-bar>
+  <nav-bar title="AI出题小助手"></nav-bar>
 
-  <view class="container">
-    <view class="hero-card">
-      <image class="hero-image" src="/assets/hero-banner.png" mode="aspectFill"></image>
-      <view class="hero-logo-card">
-        <image class="hero-logo" src="/assets/logo-distinctive.png" mode="aspectFill"></image>
-        <view class="hero-brand-copy">
-          <view class="hero-brand-name">AI 出题小助手</view>
-          <view class="hero-brand-sub">练习卷 · 试题 · 打印</view>
-        </view>
-      </view>
-    </view>
+  <view class="container index-container">
+    <image class="hero-card" src="/assets/hero-banner.png" mode="aspectFill"></image>
 
-    <view class="points-row">
+    <view class="points-row card">
       <view class="points-left">
-        <view class="points-icon">✓</view>
-        <text>剩余点数 {{points}}</text>
+        <view class="coin-icon"></view>
+        <text>剩余点数</text>
+        <text class="points-num">{{points}}</text>
       </view>
-      <view class="upgrade-pill" bindtap="goPackages">升级获取更多点数</view>
+      <view class="upgrade-pill" bindtap="goPackages">
+        <text class="crown-mini">♛</text>
+        <text>升级获取更多点数</text>
+        <text class="pill-arrow">›</text>
+      </view>
     </view>
 
     <view class="textarea-wrap {{statusType === 'error' ? 'error' : ''}}">
@@ -33,6 +29,21 @@
         disabled="{{loading}}"
       ></textarea>
       <view class="counter">{{prompt.length}}/300</view>
+    </view>
+
+    <view wx:if="{{smartHint}}" class="smart-hint">{{smartHint}}</view>
+
+    <view wx:if="{{promptGuardMessage}}" class="prompt-guard {{promptGuardState}}">
+      <view class="prompt-guard-text">{{promptGuardMessage}}</view>
+      <view wx:if="{{promptSuggestions.length}}" class="suggestion-row">
+        <view
+          wx:for="{{promptSuggestions}}"
+          wx:key="*this"
+          class="suggestion-chip"
+          data-prompt="{{item}}"
+          bindtap="applyPromptSuggestion"
+        >{{item}}</view>
+      </view>
     </view>
 
     <view class="quick-row">
@@ -52,44 +63,40 @@
         <text class="arrow">⌄</text>
       </view>
     </view>
-    <view wx:if="{{openDropdown}}" class="select-panel">
-      <view class="select-head">{{openDropdown==='grade' ? '选择年级' : '选择科目'}}</view>
-      <scroll-view scroll-y class="select-list">
-        <block wx:if="{{openDropdown==='grade'}}">
-          <view wx:for="{{gradeGroups}}" wx:for-item="group" wx:key="name" class="select-group">
-            <view class="select-group-title">{{group.name}}</view>
-            <view class="select-grid">
-              <view
-                wx:for="{{group.items}}"
-                wx:for-item="gradeItem"
-                wx:key="*this"
-                class="select-option {{grade===gradeItem ? 'active' : ''}}"
-                data-value="{{gradeItem}}"
-                bindtap="selectGrade"
-              >
-                {{gradeItem}}
-              </view>
-            </view>
-          </view>
-        </block>
-        <block wx:else>
-          <view class="select-grid subject-grid">
-            <view
-              wx:for="{{subjectOptions}}"
-              wx:key="*this"
-              class="select-option {{subject===item ? 'active' : ''}}"
-              data-value="{{item}}"
-              bindtap="selectSubject"
-            >
-              {{item}}
-            </view>
-          </view>
-        </block>
-      </scroll-view>
+
+    <view wx:if="{{openDropdown === 'grade'}}" class="select-panel card">
+      <view class="select-head">选择年级</view>
+      <view wx:for="{{gradeGroups}}" wx:for-item="group" wx:key="name" class="select-group">
+        <view class="select-group-title">{{group.name}}</view>
+        <view class="select-grid">
+          <view
+            wx:for="{{group.items}}"
+            wx:for-item="gradeItem"
+            wx:key="*this"
+            class="select-option {{grade===gradeItem ? 'active' : ''}}"
+            data-value="{{gradeItem}}"
+            bindtap="selectGrade"
+          >{{gradeItem}}</view>
+        </view>
+      </view>
     </view>
 
-    <view class="cost-card">
-      <view>
+    <view wx:if="{{openDropdown === 'subject'}}" class="select-panel card compact">
+      <view class="select-head">选择学科</view>
+      <view class="select-grid subject-grid">
+        <view
+          wx:for="{{subjectOptions}}"
+          wx:key="*this"
+          class="select-option {{subject===item ? 'active' : ''}}"
+          data-value="{{item}}"
+          bindtap="selectSubject"
+        >{{item}}</view>
+      </view>
+    </view>
+
+    <view class="cost-card card">
+      <view class="doc-icon"></view>
+      <view class="cost-copy">
         <view class="cost-title">{{currentModeLabel}}</view>
         <view class="cost-desc">{{currentModeDesc}}</view>
       </view>
@@ -100,51 +107,85 @@
       <text>更多选项</text>
       <text class="down">{{showMore ? '⌃' : '⌄'}}</text>
     </view>
+
     <view wx:if="{{showMore}}" class="more-panel card">
       <view class="option-title">生成类型</view>
       <view class="mode-row">
-        <view wx:for="{{generationModes}}" wx:key="id" class="mode-chip {{mode===item.id?'active':''}}" data-mode="{{item.id}}" bindtap="selectMode">{{item.shortLabel}} · {{item.cost}}点</view>
-      </view>
-      <view wx:if="{{mode==='full_paper_simulation'}}" class="simulation-rule">
-        <view class="option-title">整卷仿真页数</view>
-        <view class="mode-row no-margin">
-          <view wx:for="{{pageCountOptions}}" wx:key="*this" class="mode-chip {{simulationPageCount===item?'active':''}}" data-count="{{item}}" bindtap="selectSimulationPageCount">{{item > 5 ? '超过 5 页' : item + ' 页'}}</view>
+        <view
+          wx:for="{{generationModes}}"
+          wx:key="id"
+          class="mode-chip {{mode===item.id?'active':''}}"
+          data-mode="{{item.id}}"
+          bindtap="selectMode"
+        >
+          <text>{{item.shortLabel}} · {{item.cost}}点</text>
+          <text wx:if="{{mode===item.id}}" class="mode-check">✓</text>
         </view>
-        <view class="rule-copy">系统会根据原卷的知识点、题型和难度生成新的练习卷，不会复制原题。生成内容仅供学习练习参考，请在使用前自行检查。</view>
       </view>
     </view>
 
     <button
-      class="primary-btn generate-btn {{loading || (!prompt && !filePath) ? 'disabled' : ''}}"
+      class="primary-btn generate-btn {{loading || !canGenerate || queueFull || duplicateGenerationLocked ? 'disabled' : ''}}"
       loading="{{loading}}"
-      disabled="{{loading}}"
+      disabled="{{loading || !canGenerate || queueFull || duplicateGenerationLocked}}"
       bindtap="handleGenerate"
-    >
-      {{loading ? '正在生成练习卷...' : generateButtonText}}
-    </button>
+    >{{submitButtonText || generateButtonText}}</button>
 
-    <view class="cost-line">本次生成将消耗 {{currentModeCost}} 点 · 当前剩余 {{points}} 点</view>
-
-    <view wx:if="{{statusType !== 'empty'}}" class="status-card {{statusType}}">
-      <view class="status-dot"></view>
-      <text>{{statusMessage}}</text>
-    </view>
-
-    <view class="upload-card {{filePath ? 'selected' : ''}}" bindtap="chooseFile">
-      <view class="upload-icon">＋</view>
-      <view class="upload-info">
+    <view class="upload-card card {{filePath ? 'selected' : ''}}" bindtap="chooseFile">
+      <view class="upload-icon">↥</view>
+      <view class="upload-copy">
         <view class="upload-title">{{fileName || '上传资料（PDF / Word / 图片）'}}</view>
-        <view class="upload-desc">{{filePath ? '已选择资料，可用于生成或整卷仿真。点击卡片可重新选择。' : '支持 PDF、Word、图片，最多上传 10MB；整卷仿真最多 5 页。'}}</view>
-        <view wx:if="{{filePath}}" class="upload-meta-row">
-          <text>{{fileTypeLabel}}</text>
-          <text>{{fileSizeLabel}}</text>
-          <text>{{fileParseStatus === 'placeholder' ? '占位解析' : '待后端解析'}}</text>
-        </view>
-        <view wx:if="{{filePath}}" class="upload-hint">{{fileParseHint}}</view>
+        <view class="upload-desc">{{filePath ? '已选择资料，可用于生成或整卷仿真。' : '支持 PDF、Word、图片，最多上传 10MB'}}</view>
       </view>
       <view wx:if="{{filePath}}" class="remove-file" catchtap="removeFile">移除</view>
     </view>
-    <view wx:if="{{hasLastWorksheet}}" class="last-card" bindtap="goPreview">
+
+    <view wx:if="{{generationTasks.length}}" class="task-list {{recentGenerationCollapsed ? 'collapsed' : ''}}">
+      <view class="task-list-head" bindtap="toggleRecentGeneration">
+        <view>
+          <view class="task-list-title">最近生成</view>
+          <view class="task-list-subtitle">{{recentGenerationCollapsed ? '已收起，点击展开最近生成。' : '最多展示 3 条，完整内容在生成记录里查看。'}}</view>
+        </view>
+        <view class="task-head-right">
+          <view class="task-list-count">{{generationTasks.length}}</view>
+          <view class="task-toggle-icon">{{recentGenerationCollapsed ? '⌄' : '⌃'}}</view>
+        </view>
+      </view>
+      <view wx:if="{{!recentGenerationCollapsed}}" class="task-list-body">
+        <view
+          wx:for="{{visibleGenerationTasks}}"
+          wx:key="id"
+          class="task-card {{item.status}}"
+          data-id="{{item.id}}"
+          bindtap="previewGenerationTask"
+        >
+          <view class="task-main">
+            <view class="task-title">{{item.prompt || item.modeLabel}}</view>
+            <view class="task-meta">{{item.grade}} · {{item.subject}} · {{item.modeLabel}}</view>
+            <view class="task-message">{{item.message || (item.status === 'succeeded' ? '生成完成，点击预览。' : '正在生成，可离开页面。')}}</view>
+            <view wx:if="{{item.status === 'queued' || item.status === 'running'}}" class="task-progress">
+              <view class="task-progress-inner" style="width: {{item.progress || 8}}%;"></view>
+            </view>
+          </view>
+          <view class="task-status {{item.status}}">
+            {{item.status === 'succeeded' ? '去预览' : item.status === 'failed' ? '失败' : '生成中'}}
+          </view>
+        </view>
+        <view wx:if="{{hasMoreGenerationTasks}}" class="task-record-link" bindtap="goGenerationRecords">
+          <view>
+            <view class="task-record-title">生成记录</view>
+            <view class="task-record-desc">还有 {{hiddenGenerationTaskCount}} 条，查看全部生成内容</view>
+          </view>
+          <view class="task-record-arrow">›</view>
+        </view>
+      </view>
+      <view wx:else class="task-collapsed-row" bindtap="goGenerationRecords">
+        <text>查看全部生成记录</text>
+        <text class="task-record-arrow">›</text>
+      </view>
+    </view>
+
+    <view wx:if="{{hasLastWorksheet}}" class="last-card card" bindtap="goPreview">
       <view>
         <view class="last-label">最近生成</view>
         <view class="last-title">{{lastWorksheetTitle}}</view>

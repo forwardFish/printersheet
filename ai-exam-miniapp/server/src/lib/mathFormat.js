@@ -41,6 +41,24 @@ const SUPER = {
   z: '\u1DBB'
 }
 
+const SUB = {
+  0: '\u2080',
+  1: '\u2081',
+  2: '\u2082',
+  3: '\u2083',
+  4: '\u2084',
+  5: '\u2085',
+  6: '\u2086',
+  7: '\u2087',
+  8: '\u2088',
+  9: '\u2089',
+  '+': '\u208A',
+  '-': '\u208B',
+  '=': '\u208C',
+  '(': '\u208D',
+  ')': '\u208E'
+}
+
 function cleanText(value = '') {
   return String(value || '').replace(/\s+/g, ' ').trim()
 }
@@ -53,6 +71,21 @@ function superscript(value = '') {
   return chars.map(char => SUPER[char]).join('')
 }
 
+function subscript(value = '') {
+  const raw = String(value)
+  const chars = raw.split('')
+  if (!chars.length) return ''
+  if (!chars.every(char => SUB[char])) return `_${raw}`
+  return chars.map(char => SUB[char]).join('')
+}
+
+function ionSuperscript(first = '', second = '') {
+  const a = String(first || '')
+  const b = String(second || '')
+  if (/^[+-]$/.test(a) && /^\d+$/.test(b)) return superscript(`${b}${a}`)
+  return superscript(`${a}${b}`)
+}
+
 function normalizeCases(value = '') {
   return String(value || '')
     .replace(/\$+/g, '')
@@ -63,6 +96,7 @@ function normalizeCases(value = '') {
 
 function normalizeLatex(value = '') {
   return normalizeCases(value)
+    .replace(/\\(?:text|textbf|mathrm|operatorname)\{([^{}]*)\}/g, '$1')
     .replace(/\\left|\\right/g, '')
     .replace(/\\cdot|\\times/g, '\u00D7')
     .replace(/\\div/g, '/')
@@ -76,8 +110,31 @@ function normalizeLatex(value = '') {
     .replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, '($1)/($2)')
 }
 
-export function toDisplayMath(value = '') {
+export function toDisplayChemistry(value = '') {
   return normalizeLatex(value)
+    .replace(/\\xlongequal\{([^{}]+)\}/g, (_, condition) => ` ${condition}\u2192 `)
+    .replace(/\\xrightarrow\{([^{}]+)\}/g, (_, condition) => ` ${condition}\u2192 `)
+    .replace(/\\longrightarrow|\\rightarrow|\\to/g, '\u2192')
+    .replace(/\\uparrow/g, '\u2191')
+    .replace(/\\downarrow/g, '\u2193')
+    .replace(/\\Delta/g, '\u25B3')
+    .replace(/\\ce\{([^{}]+)\}/g, '$1')
+    .replace(/\\mathrm\{([^{}]+)\}/g, '$1')
+    .replace(/\\overset\{([^{}]+)\}\{([^{}]+)\}/g, (_, top, base) => `${base}(${top})`)
+    .replace(/_\{([^{}]+)\}/g, (_, sub) => subscript(sub))
+    .replace(/_([0-9]+)/g, (_, sub) => subscript(sub))
+    .replace(/\^\{([+\-])([0-9]+)\}/g, (_, sign, digits) => ionSuperscript(sign, digits))
+    .replace(/\^\{([0-9]+)([+\-])\}/g, (_, digits, sign) => ionSuperscript(digits, sign))
+    .replace(/\^([+\-])([0-9]+)/g, (_, sign, digits) => ionSuperscript(sign, digits))
+    .replace(/\^([0-9]+)([+\-])/g, (_, digits, sign) => ionSuperscript(digits, sign))
+    .replace(/([A-Z][a-z]?)([0-9]+)/g, (_, element, digits) => `${element}${subscript(digits)}`)
+    .replace(/(\))([0-9]+)/g, (_, close, digits) => `${close}${subscript(digits)}`)
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+export function toDisplayMath(value = '') {
+  return toDisplayChemistry(value)
     .replace(/<=/g, '\u2264')
     .replace(/>=/g, '\u2265')
     .replace(/!=/g, '\u2260')

@@ -56,6 +56,14 @@ function normalizeQuestion(question, index, defaults) {
   if (q.diagramSpec && typeof q.diagramSpec === 'object' && !Array.isArray(q.diagramSpec)) {
     normalized.diagramSpec = q.diagramSpec
   }
+  if (q.needsDiagram !== undefined) normalized.needsDiagram = Boolean(q.needsDiagram)
+  if (q.diagramSpecRequired !== undefined) normalized.diagramSpecRequired = Boolean(q.diagramSpecRequired)
+  if (q.diagramSpecSource) normalized.diagramSpecSource = String(q.diagramSpecSource || '').trim()
+  if (q.geometryDomain) normalized.geometryDomain = String(q.geometryDomain || '').trim()
+  if (q.geometryTemplateFamily) normalized.geometryTemplateFamily = String(q.geometryTemplateFamily || '').trim()
+  if (q.geometryClassification && typeof q.geometryClassification === 'object' && !Array.isArray(q.geometryClassification)) {
+    normalized.geometryClassification = q.geometryClassification
+  }
   if (q.tableSpec && typeof q.tableSpec === 'object' && !Array.isArray(q.tableSpec)) {
     normalized.tableSpec = q.tableSpec
   }
@@ -130,7 +138,12 @@ function normalizeSourceQuestionBlueprints(sourceQuestionBlueprints = []) {
     difficulty: String(item.difficulty || '中等').trim(),
     type: String(item.type || '').trim(),
     score: Number(item.score || 0),
-    expectedAnswerShape: String(item.expectedAnswerShape || '').trim()
+    expectedAnswerShape: String(item.expectedAnswerShape || '').trim(),
+    needsDiagram: Boolean(item.needsDiagram || item.diagramSpecRequired),
+    diagramSpecRequired: Boolean(item.diagramSpecRequired || item.needsDiagram),
+    geometryDomain: String(item.geometryDomain || '').trim(),
+    geometryTemplateFamily: String(item.geometryTemplateFamily || item.templateFamily || '').trim(),
+    diagramRequiredReason: String(item.diagramRequiredReason || '').trim()
   })).filter(item => item.number > 0)
 }
 

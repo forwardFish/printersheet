@@ -23,7 +23,7 @@ const PLANS = [
     origin: '',
     points: 30,
     memberName: 'Starter 月卡',
-    benefits: ['30 点 / 月', '适合轻量练习', 'PDF 无水印', '暂不支持 Word']
+    benefits: ['每月 30 点', '适合轻量练习', 'PDF 无水印', '暂不支持 Word']
   },
   {
     id: 'pro_monthly',
@@ -37,7 +37,7 @@ const PLANS = [
     points: 80,
     memberName: 'Pro 月卡',
     recommend: true,
-    benefits: ['每月 80 点', '约 80 份普通练习或 8 份整卷仿真', '无水印 PDF', 'Word 下载', '完整答案解析']
+    benefits: ['每月 80 点', '约可生成 80 份普通练习卷，或 8 份整卷仿真', '无水印 PDF', 'Word 下载', '完整答案解析']
   },
   {
     id: 'teacher_monthly',
@@ -51,6 +51,19 @@ const PLANS = [
     points: 200,
     memberName: 'Teacher 月卡',
     benefits: ['每月 200 点', '适合老师和家教', '无水印 PDF', 'Word 下载', '整卷仿真与批量使用']
+  },
+  {
+    id: 'standard_yearly',
+    name: '标准版',
+    billing: 'year',
+    billingLabel: '年',
+    productType: 'plan',
+    planCode: 'standard',
+    price: '399',
+    origin: '',
+    points: 960,
+    memberName: '标准版 年度会员',
+    benefits: ['有效期 12 个月', 'PDF 无水印', 'Word 下载', '完整答案解析']
   }
 ]
 
@@ -80,7 +93,7 @@ const POINT_PACKS = [
 ]
 
 function getPaidPlans() {
-  return PLANS.filter(plan => plan.id !== 'free')
+  return PLANS.filter(plan => plan.id !== 'free' && plan.id !== 'standard_yearly')
 }
 
 function getPointPacks() {
@@ -92,7 +105,7 @@ function getPlanById(planId) {
 }
 
 function getDefaultPlan() {
-  return getPlanById('pro_monthly') || getPaidPlans()[0]
+  return getPlanById('standard_yearly') || getPlanById('pro_monthly')
 }
 
 module.exports = { PLANS, POINT_PACKS, getPaidPlans, getPointPacks, getPlanById, getDefaultPlan }

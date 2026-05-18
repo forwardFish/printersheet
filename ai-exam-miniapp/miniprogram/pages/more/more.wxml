@@ -18,5 +18,5 @@
       <view class="about-desc">输入知识点或上传资料，生成可打印 PDF / Word 练习卷。</view>
     </view>
   </view>
-  <bottom-tab active="more"></bottom-tab>
+  <bottom-tab active="my"></bottom-tab>
 </view>

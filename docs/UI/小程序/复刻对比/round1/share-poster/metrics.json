@@ -1,0 +1,18 @@
+{
+  "id": "share-poster",
+  "reference": "docs/UI/小程序/分享海报.png",
+  "actual": "ai-exam-miniapp/miniprogram/assets/share-poster.png",
+  "width": 941,
+  "height": 1672,
+  "totalPixels": 1573352,
+  "diffPixels": 0,
+  "diffRatio": 0,
+  "diffPercent": 0,
+  "threshold": 0.01,
+  "passed": true,
+  "artifacts": {
+    "reference": "docs/UI/小程序/复刻对比/round1/share-poster/reference.png",
+    "actual": "docs/UI/小程序/复刻对比/round1/share-poster/actual.png",
+    "diff": "docs/UI/小程序/复刻对比/round1/share-poster/diff.png"
+  }
+}

@@ -1,77 +1,164 @@
 .tabbar {
   position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 128rpx;
+  left: 24rpx;
+  right: 24rpx;
+  bottom: 12rpx;
+  height: 132rpx;
   padding-bottom: env(safe-area-inset-bottom);
-  background: rgba(255,255,255,.96);
-  border-top: 1rpx solid #eef0f6;
+  background: rgba(255, 255, 255, .94);
+  border-radius: 28rpx;
+  border: 1rpx solid #edf0f7;
   display: flex;
   align-items: center;
   justify-content: space-around;
   z-index: 50;
+  box-shadow: 0 -10rpx 36rpx rgba(44, 54, 88, .08);
   backdrop-filter: blur(18rpx);
 }
+
 .tab-item {
   width: 50%;
-  height: 104rpx;
+  height: 118rpx;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: #7d8496;
+  color: #7a8396;
   font-size: 25rpx;
   font-weight: 500;
-}
-.tab-item.active {
-  color: #5948f4;
-  font-weight: 700;
-}
-.tab-icon {
-  width: 45rpx;
-  height: 45rpx;
-  margin-bottom: 7rpx;
   position: relative;
 }
+
+.tab-item.active {
+  color: #5a4bf4;
+  font-weight: 800;
+}
+
+.active-line {
+  position: absolute;
+  top: -1rpx;
+  width: 116rpx;
+  height: 4rpx;
+  border-radius: 999rpx;
+  background: transparent;
+}
+
+.tab-item.active .active-line {
+  background: #5a4bf4;
+}
+
+.tab-icon {
+  width: 44rpx;
+  height: 44rpx;
+  margin-bottom: 8rpx;
+  position: relative;
+}
+
 .home-icon::before {
   content: '';
   position: absolute;
-  left: 7rpx;
-  top: 15rpx;
-  width: 31rpx;
-  height: 25rpx;
-  border-radius: 7rpx;
-  background: currentColor;
+  left: 8rpx;
+  top: 17rpx;
+  width: 29rpx;
+  height: 23rpx;
+  border-radius: 6rpx;
+  border: 5rpx solid currentColor;
+  border-top: 0;
 }
+
 .home-icon::after {
   content: '';
   position: absolute;
   left: 8rpx;
-  top: 1rpx;
-  width: 30rpx;
-  height: 30rpx;
-  border-radius: 7rpx;
-  background: currentColor;
+  top: 2rpx;
+  width: 28rpx;
+  height: 28rpx;
+  border-left: 5rpx solid currentColor;
+  border-top: 5rpx solid currentColor;
   transform: rotate(45deg);
+  border-radius: 5rpx;
 }
+
 .user-icon::before {
   content: '';
   position: absolute;
   left: 13rpx;
-  top: 3rpx;
-  width: 20rpx;
-  height: 20rpx;
+  top: 2rpx;
+  width: 18rpx;
+  height: 18rpx;
   border: 5rpx solid currentColor;
   border-radius: 50%;
 }
+
 .user-icon::after {
   content: '';
   position: absolute;
-  left: 6rpx;
-  bottom: 1rpx;
-  width: 32rpx;
+  left: 5rpx;
+  bottom: 2rpx;
+  width: 34rpx;
   height: 21rpx;
   border: 5rpx solid currentColor;
   border-radius: 22rpx 22rpx 8rpx 8rpx;
+}
+
+.tabbar {
+  left: 18rpx;
+  right: 18rpx;
+  bottom: 8rpx;
+  height: 146rpx;
+  border-radius: 32rpx 32rpx 24rpx 24rpx;
+  background: rgba(255, 255, 255, .96);
+  box-shadow: 0 -18rpx 48rpx rgba(38, 48, 86, .075);
+}
+
+.tab-item {
+  height: 126rpx;
+  padding-top: 14rpx;
+  font-size: 26rpx;
+}
+
+.tab-icon {
+  width: 50rpx;
+  height: 50rpx;
+  margin-bottom: 9rpx;
+}
+
+.active-line {
+  top: 0;
+  width: 112rpx;
+  height: 5rpx;
+}
+
+.home-icon::before {
+  left: 9rpx;
+  top: 20rpx;
+  width: 31rpx;
+  height: 24rpx;
+  border-width: 4rpx;
+  border-radius: 5rpx;
+}
+
+.home-icon::after {
+  left: 9rpx;
+  top: 4rpx;
+  width: 30rpx;
+  height: 30rpx;
+  border-left-width: 4rpx;
+  border-top-width: 4rpx;
+}
+
+.user-icon::before {
+  left: 14rpx;
+  top: 4rpx;
+  width: 20rpx;
+  height: 20rpx;
+  border-width: 4rpx;
+}
+
+.user-icon::after {
+  left: 6rpx;
+  bottom: 3rpx;
+  width: 36rpx;
+  height: 22rpx;
+  border-width: 4rpx;
 }

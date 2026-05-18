@@ -1,72 +1,45 @@
 const storage = require('../../utils/storage')
 const { getDefaultPlan } = require('../../utils/plans')
-const billing = require('../../utils/billing')
+const api = require('../../services/api')
+const modal = require('../../utils/modal')
 
-function addDays(base, days) {
-  return new Date(base.getTime() + days * 24 * 3600 * 1000)
+function returnAfterPayment() {
+  wx.redirectTo({ url: '/pages/my/my' })
 }
 
 Page({
-  data: { plan: {}, paying: false },
+  data: { plan: {}, paying: false, validityText: '' },
   onLoad() {
-    const plan = getApp().globalData.selectedPlan || getDefaultPlan()
-    this.setData({ plan })
+    const selected = getApp().globalData.selectedPlan
+    const plan = selected && selected.id ? selected : getDefaultPlan()
+    const validityText = plan.productType === 'point_pack'
+      ? '立即到账'
+      : plan.billing === 'year'
+        ? '12个月'
+        : plan.billing === 'month'
+          ? '31天'
+          : plan.billingLabel || ''
+    this.setData({ plan, validityText })
   },
-  pay() {
+  async pay() {
     if (this.data.paying) return
+    if (!storage.getToken()) {
+      wx.navigateTo({ url: '/pages/login/login' })
+      return
+    }
     this.setData({ paying: true })
     wx.showLoading({ title: '支付中...' })
-    setTimeout(() => {
-      const plan = this.data.plan
-      const orderId = `mock_${Date.now()}`
-      const now = new Date()
-      const isPointPack = plan.productType === 'point_pack'
-      storage.addPoints(plan.points || 0, {
-        type: isPointPack ? 'point_pack_purchase' : 'plan_purchase_bonus',
-        relatedId: orderId,
-        remark: plan.name
-      })
-      let expireAt = ''
-      if (!isPointPack) {
-        const current = storage.getMember()
-        const currentExpireMs = current && (current.planExpiresAt || current.expireAt)
-          ? new Date(current.planExpiresAt || current.expireAt).getTime()
-          : 0
-        const start = currentExpireMs > now.getTime() ? new Date(currentExpireMs) : now
-        expireAt = billing.formatDate(addDays(start, 31))
-        storage.setMember({
-          name: plan.memberName,
-          expireAt,
-          planExpiresAt: `${expireAt}T23:59:59.000Z`,
-          planId: plan.id,
-          planCode: plan.planCode,
-          billing: plan.billing,
-          points: plan.points,
-          purchasedAt: now.toLocaleString(),
-          benefits: plan.benefits || []
-        })
-      }
-      const inviteReward = storage.rewardInviterOnFirstPurchase(orderId)
-      storage.addPurchase({
-        orderId,
-        planId: plan.id,
-        planName: plan.name,
-        title: plan.memberName,
-        productType: plan.productType,
-        price: plan.price,
-        points: plan.points,
-        billing: plan.billing,
-        billingLabel: plan.billingLabel,
-        status: 'mock_paid',
-        statusLabel: '模拟支付成功',
-        paymentStatus: 'paid',
-        expireAt,
-        inviteReward
-      })
+    try {
+      const result = await api.createMockPurchase(this.data.plan.id)
+      if (typeof result.pointsBalance === 'number') storage.setPoints(result.pointsBalance)
       wx.hideLoading()
-      wx.showToast({ title: '支付成功', icon: 'success' })
       this.setData({ paying: false })
-      setTimeout(() => wx.redirectTo({ url: '/pages/my/my' }), 800)
-    }, 900)
+      await modal.showTip('支付成功，点数和会员权益已发放。', { title: '支付成功' })
+      returnAfterPayment()
+    } catch (e) {
+      wx.hideLoading()
+      this.setData({ paying: false })
+      modal.showError(e.message || '支付失败', { title: '支付失败' })
+    }
   }
 })

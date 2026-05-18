@@ -1,0 +1,43 @@
+{
+  "status": "COMPARE_COMPLETE",
+  "verdict": "BLOCKED_BY_ENVIRONMENT",
+  "generatedAt": "2026-05-18T09:36:32.570Z",
+  "round": "round1",
+  "thresholds": {
+    "perPageRatio": 0.01,
+    "averageRatio": 0.008
+  },
+  "expectedPageCaptures": 8,
+  "capturedPageCount": 0,
+  "compared": 1,
+  "averageRatio": 0,
+  "averagePercent": 0,
+  "results": [
+    {
+      "id": "share-poster",
+      "reference": "docs/UI/小程序/分享海报.png",
+      "actual": "ai-exam-miniapp/miniprogram/assets/share-poster.png",
+      "width": 941,
+      "height": 1672,
+      "totalPixels": 1573352,
+      "diffPixels": 0,
+      "diffRatio": 0,
+      "diffPercent": 0,
+      "threshold": 0.01,
+      "passed": true,
+      "artifacts": {
+        "reference": "docs/UI/小程序/复刻对比/round1/share-poster/reference.png",
+        "actual": "docs/UI/小程序/复刻对比/round1/share-poster/actual.png",
+        "diff": "docs/UI/小程序/复刻对比/round1/share-poster/diff.png"
+      }
+    }
+  ],
+  "errors": [],
+  "pending": [
+    {
+      "id": "home-my-transition-composite",
+      "reference": "docs/UI/小程序/ChatGPT Image 2026年5月17日 21_13_18 (3).png",
+      "reason": "参考图是首页上半屏与我的页遮罩态下半屏的拼接/过渡画面，不是一个稳定小程序路由状态。"
+    }
+  ]
+}

@@ -7,24 +7,30 @@ import fs from 'fs'
 import { fileURLToPath } from 'url'
 import { v4 as uuid } from 'uuid'
 import { parseUploadedFile } from './lib/parseFile.js'
-import { generateWorksheetWithAI } from './lib/ai.js'
-import { listAiProviders, resolveAiProvider } from './lib/aiProviders.js'
+import { aiRuntimeConfig, generateWorksheetWithAI } from './lib/ai.js'
+import { listAiProviders } from './lib/aiProviders.js'
 import { buildPdf } from './lib/buildPdf.js'
 import { buildDocx } from './lib/buildDocx.js'
 import { assertValidWorksheet, normalizeWorksheet, pointsFor } from './lib/worksheet.js'
 import { createMockPurchase, getPlansByBilling } from './lib/plans.js'
 import { estimateGeneration } from './lib/billing.js'
+import { loadEnv } from './env/index.js'
+import { createMainChain } from './app/createMainChain.js'
+import { requireAuth } from './middleware/auth.js'
+import { registerMainChainRoutes } from './routes/mainChain.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const root = path.resolve(__dirname, '..')
+const env = loadEnv({ root })
 const filesDir = path.join(root, 'files')
 const uploadsDir = path.join(root, 'uploads')
 fs.mkdirSync(filesDir, { recursive: true })
 fs.mkdirSync(uploadsDir, { recursive: true })
+const generationJobs = new Map()
 
-const PORT = Number(process.env.PORT || 8787)
-const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || `http://127.0.0.1:${PORT}`
+const PORT = env.port
+const PUBLIC_BASE_URL = env.publicBaseUrl
 const SUPPORTED_UPLOAD_EXTENSIONS = new Set(['.pdf', '.doc', '.docx', '.png', '.jpg', '.jpeg', '.webp'])
 
 function uploadExtension(file) {
@@ -79,74 +85,182 @@ function wantsUrl(req) {
   return req.query.returnUrl === '1' || req.query.returnUrl === 'true' || req.get('accept')?.includes('application/json')
 }
 
+function wantsAsync(req) {
+  return req.query.async === '1' || req.query.async === 'true' || req.body.async === true || req.body.async === '1' || req.body.async === 'true'
+}
+
+function publicJob(job) {
+  if (!job) return null
+  return {
+    jobId: job.jobId,
+    status: job.status,
+    progress: job.progress,
+    message: job.message,
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt,
+    finishedAt: job.finishedAt || null,
+    result: job.result || null,
+    error: job.error || null
+  }
+}
+
+function updateJob(jobId, patch) {
+  const job = generationJobs.get(jobId)
+  if (!job) return null
+  Object.assign(job, patch, { updatedAt: new Date().toISOString() })
+  generationJobs.set(jobId, job)
+  return job
+}
+
+async function runGenerate({ body, file, requestId, startedAt = Date.now(), onProgress = () => {} }) {
+  const prompt = String(body.prompt || '')
+  const mode = String(body.mode || '')
+  const grade = String(body.grade || '')
+  const subject = String(body.subject || '')
+  const difficulty = String(body.difficulty || '')
+  const questionCount = Number(body.questionCount || 0)
+  const fileMeta = {
+    fileName: body.fileName,
+    fileType: body.fileType,
+    fileExtension: body.fileExtension
+  }
+  console.log(`[generate:${requestId}] start file=${file ? (body.fileName || file.originalname) : 'none'} size=${file?.size || 0} questions=${questionCount}`)
+  onProgress({ status: 'running', progress: 10, message: '正在解析上传资料...' })
+  const parseStartedAt = Date.now()
+  const fileText = await parseUploadedFile(file, fileMeta)
+  console.log(`[generate:${requestId}] parsed status=${file ? parserStatusFor(file, fileText, fileMeta) : 'none'} textLength=${fileText.length} ms=${Date.now() - parseStartedAt}`)
+  const sourceFileInfo = file
+    ? {
+      name: body.fileName || file.originalname,
+      type: body.fileType || file.mimetype,
+      size: file.size,
+      parsedTextLength: fileText.length,
+      parserStatus: parserStatusFor(file, fileText, fileMeta),
+      parserMessage: parserStatusFor(file, fileText, fileMeta) === 'placeholder'
+        ? '当前文件使用占位解析/降级提示进入生成流程。'
+        : '后端已提取到可用文本。'
+    }
+    : null
+  onProgress({ status: 'running', progress: 30, message: 'AI 正在生成练习卷，请稍候...' })
+  const aiStartedAt = Date.now()
+  const generated = await generateWorksheetWithAI({ prompt, fileText, grade, subject, difficulty, mode, questionCount })
+  console.log(`[generate:${requestId}] ai source=${generated.source} questions=${generated.worksheet?.questions?.length || 0} ms=${Date.now() - aiStartedAt}`)
+  const id = uuid()
+  const pointsUsed = pointsFor({ prompt, mode, questionCount, worksheet: generated.worksheet })
+  const worksheet = assertValidWorksheet(normalizeWorksheet(generated.worksheet, {
+    sourceFileInfo,
+    pointsUsed,
+    ocrPages: 0
+  }))
+  onProgress({ status: 'running', progress: 82, message: '正在排版 PDF 和 Word 文件...' })
+  const fileStartedAt = Date.now()
+  const urls = await createFiles(worksheet, id)
+  console.log(`[generate:${requestId}] files ms=${Date.now() - fileStartedAt} totalMs=${Date.now() - startedAt}`)
+  return {
+    success: true,
+    worksheetId: id,
+    worksheet,
+    source: generated.source,
+    fallbackReason: generated.fallbackReason,
+    pointsUsed,
+    cost: { pointsUsed, ocrPages: 0 },
+    ...urls
+  }
+}
+
 async function handleGenerate(req, res) {
   const startedAt = Date.now()
   const requestId = uuid()
-  try {
-    const prompt = String(req.body.prompt || '')
-    const mode = String(req.body.mode || '')
-    const grade = String(req.body.grade || '')
-    const subject = String(req.body.subject || '')
-    const difficulty = String(req.body.difficulty || '')
-    const questionCount = Number(req.body.questionCount || 0)
-    const fileMeta = {
-      fileName: req.body.fileName,
-      fileType: req.body.fileType,
-      fileExtension: req.body.fileExtension
+  if (wantsAsync(req)) {
+    const jobId = uuid()
+    const now = new Date().toISOString()
+    const job = {
+      jobId,
+      status: 'queued',
+      progress: 0,
+      message: '生成任务已创建，正在排队...',
+      createdAt: now,
+      updatedAt: now,
+      requestId,
+      result: null,
+      error: null
     }
-    console.log(`[generate:${requestId}] start file=${req.file ? (req.body.fileName || req.file.originalname) : 'none'} size=${req.file?.size || 0} questions=${questionCount}`)
-    const parseStartedAt = Date.now()
-    const fileText = await parseUploadedFile(req.file, fileMeta)
-    console.log(`[generate:${requestId}] parsed status=${req.file ? parserStatusFor(req.file, fileText, fileMeta) : 'none'} textLength=${fileText.length} ms=${Date.now() - parseStartedAt}`)
-    const sourceFileInfo = req.file
-      ? {
-        name: req.body.fileName || req.file.originalname,
-        type: req.body.fileType || req.file.mimetype,
-        size: req.file.size,
-        parsedTextLength: fileText.length,
-        parserStatus: parserStatusFor(req.file, fileText, fileMeta),
-        parserMessage: parserStatusFor(req.file, fileText, fileMeta) === 'placeholder'
-          ? '当前文件使用占位解析/降级提示进入生成流程。'
-          : '后端已提取到可用文本。'
+    generationJobs.set(jobId, job)
+    setImmediate(async () => {
+      try {
+        updateJob(jobId, { status: 'running', progress: 5, message: '正在启动生成任务...' })
+        const result = await runGenerate({
+          body: { ...req.body },
+          file: req.file ? { ...req.file } : null,
+          requestId,
+          startedAt,
+          onProgress: patch => updateJob(jobId, patch)
+        })
+        updateJob(jobId, {
+          status: 'succeeded',
+          progress: 100,
+          message: '练习卷已生成，可预览和下载。',
+          finishedAt: new Date().toISOString(),
+          result
+        })
+      } catch (e) {
+        console.error(e)
+        updateJob(jobId, {
+          status: 'failed',
+          progress: 100,
+          message: e.message || '生成失败',
+          finishedAt: new Date().toISOString(),
+          error: { message: e.message || '生成失败' }
+        })
       }
-      : null
-    const aiStartedAt = Date.now()
-    const generated = await generateWorksheetWithAI({ prompt, fileText, grade, subject, difficulty, mode, questionCount })
-    console.log(`[generate:${requestId}] ai source=${generated.source} questions=${generated.worksheet?.questions?.length || 0} ms=${Date.now() - aiStartedAt}`)
-    const id = uuid()
-    const pointsUsed = pointsFor({ prompt, mode, questionCount, worksheet: generated.worksheet })
-    const worksheet = assertValidWorksheet(normalizeWorksheet(generated.worksheet, {
-      sourceFileInfo,
-      pointsUsed,
-      ocrPages: 0
-    }))
-    const fileStartedAt = Date.now()
-    const urls = await createFiles(worksheet, id)
-    console.log(`[generate:${requestId}] files ms=${Date.now() - fileStartedAt} totalMs=${Date.now() - startedAt}`)
-    res.json({
-      success: true,
-      worksheetId: id,
-      worksheet,
-      source: generated.source,
-      fallbackReason: generated.fallbackReason,
-      pointsUsed,
-      cost: { pointsUsed, ocrPages: 0 },
-      ...urls
     })
+    res.status(202).json({ success: true, async: true, ...publicJob(job) })
+    return
+  }
+  try {
+    const result = await runGenerate({ body: req.body, file: req.file, requestId, startedAt })
+    res.json(result)
   } catch (e) {
     console.error(e)
     res.status(500).json({ success: false, message: e.message || '生成失败' })
   }
 }
 
-async function handleExportPdf(req, res) {
+function handleGenerationJob(req, res) {
+  const job = publicJob(generationJobs.get(req.params.jobId))
+  if (!job) {
+    res.status(404).json({ success: false, message: '生成任务不存在或已过期' })
+    return
+  }
+  res.json({ success: true, ...job })
+}
+async function getRequestEntitlements(req, { authService, entitlementService } = {}) {
+  const header = req.get('authorization') || ''
+  const token = header.startsWith('Bearer ') ? header.slice(7) : ''
+  const user = token && authService ? await authService.verifyToken(token) : null
+  if (user && entitlementService) return entitlementService.getEntitlements(user.id)
+
+  const planCode = String(req.get('x-plan-code') || 'free')
+  const planExpiresAt = req.get('x-plan-expires-at') || null
+  const isPaid = planCode !== 'free' && planExpiresAt && new Date(planExpiresAt).getTime() > Date.now()
+  return {
+    planCode,
+    isPaid: !!isPaid,
+    canRemoveWatermark: !!isPaid,
+    canDownloadWord: !!isPaid && ['pro', 'teacher'].includes(planCode)
+  }
+}
+
+async function handleExportPdf(req, res, services = {}) {
   try {
     const id = uuid()
     const outputPath = path.join(filesDir, `${id}.pdf`)
     const worksheet = assertValidWorksheet(normalizeWorksheet(req.body.worksheet))
-    await buildPdf({ worksheet, outputPath, watermark: worksheet.mode === 'exam_simulation' ? false : req.body.watermark !== false })
+    const entitlements = await getRequestEntitlements(req, services)
+    const watermark = worksheet.mode === 'exam_simulation' ? false : !entitlements.canRemoveWatermark
+    await buildPdf({ worksheet, outputPath, watermark })
     if (wantsUrl(req)) {
-      res.json({ success: true, pdfUrl: `${PUBLIC_BASE_URL}/files/${id}.pdf` })
+      res.json({ success: true, pdfUrl: `${PUBLIC_BASE_URL}/files/${id}.pdf`, watermark })
       return
     }
     res.download(outputPath, `${id}.pdf`)
@@ -196,7 +310,7 @@ function handleEstimate(req, res) {
 }
 
 function handleAiConfig(_, res) {
-  const config = resolveAiProvider()
+  const config = aiRuntimeConfig()
   res.json({
     success: true,
     active: {
@@ -229,10 +343,18 @@ export function createApp() {
   app.use(cors())
   app.use(express.json({ limit: '2mb' }))
   app.use('/files', express.static(filesDir, { maxAge: '30m' }))
+  const mainChain = createMainChain({ env: loadEnv({ root }), filesDir, uploadsDir })
+  registerMainChainRoutes({
+    app,
+    uploadSingleFile,
+    auth: requireAuth(mainChain.authService),
+    ...mainChain
+  })
   app.get('/health', (_, res) => res.json({ ok: true }))
   app.post('/api/worksheet/generate', uploadSingleFile, handleGenerate)
   app.post('/api/generate', uploadSingleFile, handleGenerate)
-  app.post('/api/export/pdf', handleExportPdf)
+  app.get('/api/worksheet/jobs/:jobId', handleGenerationJob)
+  app.post('/api/export/pdf', (req, res) => handleExportPdf(req, res, mainChain))
   app.post('/api/export/docx', handleExportDocx)
   app.get('/api/me', handleMe)
   app.post('/api/generation/estimate', handleEstimate)
@@ -256,13 +378,13 @@ if (process.env.NODE_ENV !== 'test') {
   setInterval(() => cleanExpiredFiles(), 10 * 60 * 1000)
   app.listen(PORT, () => {
     console.log(`AI出题小助手后端已启动：${PUBLIC_BASE_URL}`)
-    if (process.env.AI_MOCK_MODE) {
+    const aiConfig = aiRuntimeConfig()
+    if (aiConfig.mockMode) {
       console.log('AI_MOCK_MODE 已开启：当前强制使用内置模拟出题数据。')
-    } else if (!(process.env.DEEPSEEK_API_KEY || process.env.AI_API_KEY)) {
+    } else if (!aiConfig.apiKey) {
       console.log('未配置 DEEPSEEK_API_KEY 或 AI_API_KEY：真实生成接口会报错，不再静默返回 demo 题。')
     } else {
-      const ai = resolveAiProvider()
-      console.log(`真实 AI 出题已启用：${ai.providerLabel}/${ai.model} @ ${ai.baseUrl}`)
+      console.log(`真实 AI 出题已启用：${aiConfig.providerLabel}/${aiConfig.model} @ ${aiConfig.baseUrl}`)
     }
   })
 }

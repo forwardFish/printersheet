@@ -1,26 +1,285 @@
-.order-page { min-height: 100vh; background: #fff; padding-bottom: 40rpx; }
-.product-card { margin-top: 22rpx; height: 150rpx; border-radius: 18rpx; border: 2rpx solid #bcb2ff; background: linear-gradient(135deg, #fff, #fbfaff); display: flex; align-items: center; padding: 0 28rpx; position: relative; }
-.product-icon { width: 92rpx; height: 74rpx; margin-right: 26rpx; background: #9e8bff; border-radius: 16rpx; padding: 10rpx; }
-.product-info { flex: 1; }
-.product-title { font-size: 31rpx; font-weight: 900; color: #20222b; margin-bottom: 16rpx; }
-.product-sub { color: #858c9d; font-size: 26rpx; }
-.product-price { font-size: 36rpx; font-weight: 900; color: #22232b; margin-right: 48rpx; }
-.select-dot { position: absolute; right: 30rpx; top: 54rpx; width: 42rpx; height: 42rpx; border-radius: 50%; background: #5e51f2; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 900; }
-.order-info { margin-top: 34rpx; padding: 38rpx 32rpx; border: none; box-shadow: 0 20rpx 60rpx rgba(50, 60, 100, .06); }
-.pay-box { margin-top: 26rpx; padding: 38rpx 32rpx; border: none; box-shadow: 0 20rpx 60rpx rgba(50, 60, 100, .06); }
-.section-title { font-size: 31rpx; font-weight: 900; color: #171922; margin-bottom: 32rpx; }
-.row { display: flex; justify-content: space-between; color: #697284; font-size: 28rpx; margin-bottom: 34rpx; }
-.divider { height: 1rpx; background: #eef0f4; margin: 10rpx 0 30rpx; }
-.pay-row { display: flex; justify-content: space-between; font-size: 28rpx; font-weight: 900; }
-.pay-price { color: #ff5a1f; font-size: 42rpx; }
-.pay-method { height: 84rpx; display: flex; align-items: center; position: relative; color: #20222b; font-size: 28rpx; }
-.wechat-icon { width: 42rpx; height: 42rpx; background: #15c765; color: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14rpx; margin-right: 20rpx; }
-.balance-icon { width: 42rpx; height: 42rpx; border-radius: 50%; border: 5rpx solid #98a1b2; color: #98a1b2; display: flex; align-items: center; justify-content: center; font-weight: 900; margin-right: 20rpx; }
-.recommend { margin-left: 16rpx; background: #ebe9ff; color: #5e51f2; padding: 5rpx 12rpx; font-size: 22rpx; border-radius: 6rpx; }
-.pay-check { position: absolute; right: 0; width: 42rpx; height: 42rpx; background: #5e51f2; color: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 900; }
-.empty-radio { position: absolute; right: 0; width: 42rpx; height: 42rpx; border-radius: 50%; border: 3rpx solid #c3cad6; }
-.disabled { color: #788194; }
-.safe-tip { height: 62rpx; border-radius: 16rpx; background: #f7f8fb; color: #8c94a5; font-size: 24rpx; display: flex; align-items: center; justify-content: center; margin-top: 22rpx; }
-.pay-btn { margin-top: 44rpx; }
-.agreement { text-align: center; color: #8a92a2; font-size: 24rpx; margin-top: 24rpx; }
-.agreement text { color: #6052f2; }
+.order-page {
+  min-height: 100vh;
+  background: linear-gradient(180deg, #fbfcff 0%, #ffffff 100%);
+  padding-bottom: 48rpx;
+}
+
+.product-card {
+  margin-top: 28rpx;
+  height: 190rpx;
+  border-radius: 20rpx;
+  border: 2rpx solid #8d7cff;
+  background: linear-gradient(135deg, #fff, #fbfaff);
+  display: flex;
+  align-items: center;
+  padding: 0 34rpx;
+  position: relative;
+}
+
+.product-icon {
+  width: 124rpx;
+  height: 124rpx;
+  margin-right: 32rpx;
+  background: linear-gradient(135deg, #a694ff, #7962ff);
+  border-radius: 18rpx;
+  padding: 16rpx;
+}
+
+.product-info {
+  flex: 1;
+}
+
+.product-title {
+  font-size: 34rpx;
+  font-weight: 900;
+  color: #171923;
+}
+
+.product-sub {
+  color: #7d879b;
+  font-size: 29rpx;
+  margin-top: 28rpx;
+}
+
+.product-price {
+  font-size: 37rpx;
+  font-weight: 900;
+  color: #171923;
+  margin-right: 64rpx;
+}
+
+.select-dot {
+  position: absolute;
+  right: 36rpx;
+  top: 72rpx;
+  width: 48rpx;
+  height: 48rpx;
+  border-radius: 50%;
+  background: #5a4bf4;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+}
+
+.order-info,
+.pay-box {
+  margin-top: 34rpx;
+  padding: 38rpx 36rpx;
+  border: 0;
+  box-shadow: 0 20rpx 60rpx rgba(50, 60, 100, .06);
+}
+
+.section-title {
+  font-size: 34rpx;
+  font-weight: 900;
+  color: #171923;
+  margin-bottom: 38rpx;
+}
+
+.row {
+  height: 72rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #7d879b;
+  font-size: 30rpx;
+}
+
+.row text:last-child {
+  color: #171923;
+}
+
+.divider {
+  height: 1rpx;
+  background: #e7eaf0;
+  margin: 18rpx 0 28rpx;
+}
+
+.pay-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 33rpx;
+  color: #171923;
+  font-weight: 900;
+}
+
+.pay-price {
+  color: #f45113;
+  font-size: 58rpx;
+  font-weight: 900;
+}
+
+.pay-method {
+  position: relative;
+  height: 84rpx;
+  display: flex;
+  align-items: center;
+  color: #1b1f2b;
+  font-size: 31rpx;
+}
+
+.wechat-icon {
+  width: 52rpx;
+  height: 52rpx;
+  background: #14c965;
+  color: #fff;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18rpx;
+  letter-spacing: -7rpx;
+  margin-right: 24rpx;
+}
+
+.balance-icon {
+  width: 52rpx;
+  height: 52rpx;
+  border-radius: 50%;
+  border: 6rpx solid #8f98aa;
+  color: #8f98aa;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  margin-right: 24rpx;
+}
+
+.balance-note {
+  color: #7a8398;
+  margin-left: 12rpx;
+}
+
+.recommend {
+  margin-left: 16rpx;
+  background: #ebe9ff;
+  color: #5a4bf4;
+  padding: 6rpx 14rpx;
+  font-size: 24rpx;
+  border-radius: 8rpx;
+}
+
+.pay-check,
+.empty-radio {
+  position: absolute;
+  right: 0;
+  width: 48rpx;
+  height: 48rpx;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pay-check {
+  background: #5a4bf4;
+  color: #fff;
+  font-weight: 900;
+}
+
+.empty-radio {
+  border: 3rpx solid #c2cad7;
+}
+
+.safe-tip {
+  height: 74rpx;
+  border-radius: 16rpx;
+  background: #f7f8fc;
+  color: #8a94a8;
+  font-size: 26rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 24rpx;
+}
+
+.shield {
+  color: #5a4bf4;
+  margin-right: 18rpx;
+}
+
+.pay-btn {
+  width: 100%;
+  margin-top: 42rpx;
+  height: 108rpx;
+  font-size: 36rpx;
+}
+
+.agreement {
+  height: 86rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #7d879b;
+  font-size: 27rpx;
+}
+
+.agreement text {
+  color: #4f46e5;
+}
+
+.agreement .check-dot {
+  width: 32rpx;
+  height: 32rpx;
+  border-radius: 50%;
+  background: #5a4bf4;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 18rpx;
+  font-size: 20rpx;
+}
+
+.order-page {
+  background:
+    radial-gradient(circle at 18% 8%, rgba(95, 78, 240, .055), transparent 30%),
+    linear-gradient(180deg, #fbfcff 0%, #ffffff 68%);
+}
+
+.product-card {
+  height: 198rpx;
+  margin-top: 30rpx;
+  border-radius: 22rpx;
+  padding: 0 36rpx;
+}
+
+.product-icon {
+  width: 128rpx;
+  height: 128rpx;
+  border-radius: 20rpx;
+}
+
+.product-title {
+  font-size: 36rpx;
+}
+
+.product-sub {
+  font-size: 30rpx;
+}
+
+.product-price {
+  font-size: 40rpx;
+}
+
+.order-info,
+.pay-box {
+  border-radius: 22rpx;
+  padding: 42rpx 40rpx;
+}
+
+.section-title {
+  font-size: 36rpx;
+}
+
+.row {
+  height: 76rpx;
+}
+
+.pay-btn {
+  height: 112rpx;
+  border-radius: 20rpx;
+}

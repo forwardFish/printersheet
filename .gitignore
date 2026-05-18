@@ -1,4 +1,5 @@
 .omx/
+node_modules/
 docs/auto-execute/codex-exec-logs/
 docs/auto-execute/runtime/
 docs/auto-execute/*.log

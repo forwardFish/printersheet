@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="560" viewBox="0 0 1500 560">
+  <rect width="1500" height="560" fill="#ffffff"/>
+  <style>
+    .title { font: 700 26px Arial, sans-serif; fill: #111; }
+    .score { font: 500 18px Arial, sans-serif; fill: #525866; }
+    .line { stroke: #111; stroke-width: 3; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+    .dash { stroke: #111; stroke-width: 2.4; fill: none; stroke-dasharray: 8 7; stroke-linecap: round; }
+    .mark { stroke: #111; stroke-width: 2.2; fill: none; }
+    .point { fill: #111; }
+    .label { font: 700 20px Arial, sans-serif; fill: #111; }
+    .len { font: 600 18px Arial, sans-serif; fill: #111; }
+    .note { font: 500 16px Arial, sans-serif; fill: #69707f; }
+    .panel { fill: #fbfcff; stroke: #e4e8f1; stroke-width: 1.5; rx: 18; }
+    .ok { fill: #188038; }
+    .warn { fill: #b35c00; }
+    .bad { fill: #c5221f; }
+  </style>
+
+  <g transform="translate(45,36)">
+    <rect class="panel" x="0" y="0" width="430" height="488"/>
+    <text class="title" x="26" y="42">Doubao</text>
+    <text class="score" x="26" y="72">Score: 82 / 100</text>
+    <g transform="translate(82,118) scale(34)">
+      <!-- A(0,6), B(8,0), C(0,0), D(2.88,3.84); map y up with SVG y down -->
+      <g transform="translate(0,204) scale(1,-1)">
+        <polyline class="line" points="0,6 8,0 0,0 0,6"/>
+        <line class="dash" x1="0" y1="0" x2="2.88" y2="3.84"/>
+        <polyline class="mark" points="0,0.52 0.52,0.52 0.52,0"/>
+        <g transform="translate(2.88,3.84) rotate(-36.8699)">
+          <polyline class="mark" points="-0.35,0 0,0 0,0.35"/>
+        </g>
+      </g>
+      <circle class="point" cx="0" cy="0" r="0.07"/>
+      <circle class="point" cx="272" cy="204" r="2.4"/>
+    </g>
+    <text class="label" x="68" y="96">A</text>
+    <text class="label" x="350" y="326">B</text>
+    <text class="label" x="68" y="334">C</text>
+    <text class="label" x="178" y="205">D</text>
+    <text class="len" x="42" y="220">6</text>
+    <text class="len" x="212" y="358">8</text>
+    <text class="note" x="26" y="424">Good geometry. Valid JSON.</text>
+    <text class="note warn" x="26" y="452">Needs segment/label normalization.</text>
+  </g>
+
+  <g transform="translate(535,36)">
+    <rect class="panel" x="0" y="0" width="430" height="488"/>
+    <text class="title" x="26" y="42">DeepSeek</text>
+    <text class="score" x="26" y="72">Score: 88 / 100</text>
+    <g transform="translate(92,116) scale(34)">
+      <!-- A(6,0), B(0,8), C(0,0), D(3.84,2.88); map y up with SVG y down -->
+      <g transform="translate(0,272) scale(1,-1)">
+        <polyline class="line" points="6,0 0,8 0,0 6,0"/>
+        <line class="dash" x1="0" y1="0" x2="3.84" y2="2.88"/>
+        <polyline class="mark" points="0,0.52 0.52,0.52 0.52,0"/>
+        <g transform="translate(3.84,2.88) rotate(53.1301)">
+          <polyline class="mark" points="-0.35,0 0,0 0,0.35"/>
+        </g>
+      </g>
+    </g>
+    <text class="label" x="305" y="404">A</text>
+    <text class="label" x="70" y="96">B</text>
+    <text class="label" x="70" y="404">C</text>
+    <text class="label" x="220" y="304">D</text>
+    <text class="len" x="178" y="430">6</text>
+    <text class="len" x="42" y="260">8</text>
+    <text class="note" x="26" y="424">Best raw candidate. Valid JSON.</text>
+    <text class="note warn" x="26" y="452">explanationSteps are objects, not strings.</text>
+  </g>
+
+  <g transform="translate(1025,36)">
+    <rect class="panel" x="0" y="0" width="430" height="488"/>
+    <text class="title" x="26" y="42">ChatGPT</text>
+    <text class="score" x="26" y="72">Score: 68 / 100 raw</text>
+    <g transform="translate(92,116) scale(34)">
+      <!-- Same geometry as DeepSeek after manual JSON repair -->
+      <g transform="translate(0,272) scale(1,-1)">
+        <polyline class="line" points="6,0 0,8 0,0 6,0"/>
+        <line class="dash" x1="0" y1="0" x2="3.84" y2="2.88"/>
+        <polyline class="mark" points="0,0.52 0.52,0.52 0.52,0"/>
+        <g transform="translate(3.84,2.88) rotate(53.1301)">
+          <polyline class="mark" points="-0.35,0 0,0 0,0.35"/>
+        </g>
+      </g>
+    </g>
+    <text class="label" x="305" y="404">A</text>
+    <text class="label" x="70" y="96">B</text>
+    <text class="label" x="70" y="404">C</text>
+    <text class="label" x="220" y="304">D</text>
+    <text class="len" x="178" y="430">6</text>
+    <text class="len" x="42" y="260">8</text>
+    <text class="note" x="26" y="424">Geometry is good after repair.</text>
+    <text class="note bad" x="26" y="452">Raw JSON has invalid backslash escapes.</text>
+  </g>
+</svg>

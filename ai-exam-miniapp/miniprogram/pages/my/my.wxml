@@ -1,17 +1,16 @@
 <view class="safe-page my-page">
   <nav-bar title="我的"></nav-bar>
-  <view class="container">
+  <view class="container my-container">
     <view class="user-box" bindtap="ensureLogin">
-      <image src="{{avatarUrl}}" class="avatar {{isLoggedIn ? '' : 'guest'}}"></image>
-      <view>
+      <image src="{{avatarUrl}}" class="avatar" mode="aspectFill"></image>
+      <view class="user-copy">
         <view class="nickname">{{displayName}}</view>
-        <view wx:if="{{isLoggedIn && displayId}}" class="uid">ID: {{displayId}}</view>
-        <view wx:else class="uid tap-login">{{isLoggedIn ? '' : '点击登录'}}</view>
+        <view class="uid">ID: {{displayId}} <text class="copy-mark">▢</text></view>
       </view>
     </view>
 
     <view class="member-card">
-      <image src="/assets/crown.png" class="member-crown"></image>
+      <image src="/assets/crown.png" class="member-crown" mode="aspectFit"></image>
       <view class="member-info">
         <view class="member-title">{{memberName}}</view>
         <view class="member-date">{{memberExpireText}}</view>
@@ -29,22 +28,65 @@
     </view>
 
     <view class="share-card card">
-      <view class="share-title">赚点数</view>
-      <view class="share-desc">每天分享后自动获得 1 点，每天限 1 次。好友通过你的链接首次购买成功，你获得 5 点。</view>
+      <view class="share-head">
+        <view>
+          <view class="share-eyebrow">邀请奖励</view>
+          <view class="share-title">赚点数</view>
+        </view>
+        <view class="share-badge">每日可领</view>
+      </view>
+      <view class="share-desc">分享给好友或朋友圈，完成邀请后自动发放点数奖励。</view>
+      <view class="reward-grid">
+        <view class="reward-item">
+          <view class="reward-num">+1</view>
+          <view class="reward-copy">每日分享</view>
+        </view>
+        <view class="reward-item">
+          <view class="reward-num">+5</view>
+          <view class="reward-copy">好友首购</view>
+        </view>
+      </view>
       <view class="share-actions">
         <button class="share-btn reward" open-type="share" bindtap="markShareIntent">分享得 1 点</button>
+        <button class="share-btn poster" bindtap="sharePosterToTimeline">朋友圈海报</button>
       </view>
       <view class="invite-link" bindtap="copyInviteLink">复制邀请链接</view>
       <view wx:if="{{shareStatusText}}" class="share-status">{{shareStatusText}}</view>
     </view>
 
     <view class="list-card card">
-      <view class="list-item" bindtap="goRecords"><view class="list-icon">≡</view><text>生成记录</text><text class="chev">›</text></view>
+      <view class="list-item" bindtap="goRecords">
+        <view class="list-icon doc"></view>
+        <text>生成记录</text>
+        <text class="chev">›</text>
+      </view>
       <view class="line"></view>
-      <view class="list-item" bindtap="goPurchases"><view class="list-icon bag">◡</view><text>购买记录</text><text class="chev">›</text></view>
+      <view class="list-item" bindtap="goPurchases">
+        <view class="list-icon bag"></view>
+        <text>购买记录</text>
+        <text class="chev">›</text>
+      </view>
     </view>
-
-    <image src="/assets/promo-banner-clean.png" class="promo" mode="aspectFill" bindtap="goHome"></image>
   </view>
+
+  <view wx:if="{{showShareMock}}" class="share-mask">
+    <view class="share-dialog">
+      <view class="send-title">发送给:</view>
+      <view class="friend-row">
+        <view class="friend-avatar"></view>
+        <view class="friend-name">虚拟好友</view>
+      </view>
+      <view class="mini-card">
+        <view class="mini-title">AI出题小助手</view>
+        <image src="/assets/hero-banner.png" class="mini-shot" mode="aspectFill"></image>
+        <view class="mini-type">小程序</view>
+      </view>
+      <view class="dialog-actions">
+        <view bindtap="closeShareMock">取消</view>
+        <view class="send" bindtap="closeShareMock">发送</view>
+      </view>
+    </view>
+  </view>
+
   <bottom-tab active="my"></bottom-tab>
 </view>

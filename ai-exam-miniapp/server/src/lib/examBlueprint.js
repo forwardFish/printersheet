@@ -1,3 +1,5 @@
+import { classifyGeometryQuestion } from './geometryClassifier.js'
+
 const TARGET_SECTION_SPECS = [
   { name: '一、选择题（本大题共 10 小题，每小题 3 分，共 30 分）', type: '选择题', from: 1, to: 10, score: 3 },
   { name: '二、填空题（本大题共 8 小题，每小题 3 分，共 24 分）', type: '填空题', from: 11, to: 18, score: 3 },
@@ -100,15 +102,23 @@ export function extractExamBlueprintFromText(fileText = '', defaults = {}) {
   const sourceQuestionBlueprints = Array.from({ length: 28 }, (_, index) => {
     const number = index + 1
     const section = inferQuestionType(number)
+    const originalStem = stemForNumber(text, number)
+    const knowledgePoints = KNOWLEDGE_BY_NUMBER[number] || ['缁煎悎鏁板鑳藉姏']
+    const geometry = classifyGeometryQuestion({ number, originalStem, knowledgePoints, type: section.type })
     return {
       number,
-      originalStem: stemForNumber(text, number),
+      originalStem,
       knowledgePoints: KNOWLEDGE_BY_NUMBER[number] || ['综合数学能力'],
       variationPlan: variationPlanFor(number, section.type),
       difficulty: difficultyFor(number),
       type: section.type,
       score: section.score,
-      expectedAnswerShape: expectedAnswerShape(number, section.type)
+      expectedAnswerShape: expectedAnswerShape(number, section.type),
+      needsDiagram: geometry.needsDiagram,
+      diagramSpecRequired: geometry.diagramSpecRequired,
+      geometryDomain: geometry.geometryDomain,
+      geometryTemplateFamily: geometry.templateFamily,
+      diagramRequiredReason: geometry.reason
     }
   })
 
@@ -196,7 +206,12 @@ export function validateExamBlueprint(blueprint) {
       difficulty: String(item.difficulty || '中等').trim(),
       type: String(item.type || '').trim(),
       score: Number(item.score || inferQuestionType(index + 1).score),
-      expectedAnswerShape: String(item.expectedAnswerShape || '').trim()
+      expectedAnswerShape: String(item.expectedAnswerShape || '').trim(),
+      needsDiagram: classifyGeometryQuestion(item).needsDiagram,
+      diagramSpecRequired: classifyGeometryQuestion(item).diagramSpecRequired,
+      geometryDomain: classifyGeometryQuestion(item).geometryDomain,
+      geometryTemplateFamily: classifyGeometryQuestion(item).templateFamily,
+      diagramRequiredReason: String(item.diagramRequiredReason || classifyGeometryQuestion(item).reason).trim()
     }))
   }
 }

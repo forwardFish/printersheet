@@ -1,6 +1,18 @@
+const modal = require('../../utils/modal')
+const share = require('../../utils/share')
+
 Page({
-  onShareAppMessage() {
-    return { title: 'AI出题小助手：免费生成可打印练习卷', path: '/pages/index/index' }
+  onLoad() {
+    share.enableShareMenu()
   },
-  shareApp() { wx.showShareMenu({ withShareTicket: true }); wx.showToast({ title: '点击右上角分享', icon: 'none' }) }
+  onShareAppMessage() {
+    return share.appShare()
+  },
+  onShareTimeline() {
+    return share.timelineShare()
+  },
+  shareApp() {
+    share.enableShareMenu()
+    modal.showTip('请点击右上角菜单，选择“分享到朋友圈”。')
+  }
 })

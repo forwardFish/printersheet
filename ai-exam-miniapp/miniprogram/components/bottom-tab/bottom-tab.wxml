@@ -1,9 +1,11 @@
 <view class="tabbar">
   <view class="tab-item {{active==='home' ? 'active' : ''}}" data-key="home" bindtap="go">
+    <view class="active-line"></view>
     <view class="tab-icon home-icon"></view>
     <text>首页</text>
   </view>
   <view class="tab-item {{active==='my' ? 'active' : ''}}" data-key="my" bindtap="go">
+    <view class="active-line"></view>
     <view class="tab-icon user-icon"></view>
     <text>我的</text>
   </view>

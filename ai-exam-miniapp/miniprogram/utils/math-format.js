@@ -5,6 +5,23 @@ function cleanText(value = '') {
     .trim()
 }
 
+function displayMathSymbols(value = '') {
+  return String(value || '')
+    .replace(/\$+/g, '')
+    .replace(/\^\\circ\b/g, '°')
+    .replace(/\\circ\b/g, '°')
+    .replace(/\\parallel\b/g, '∥')
+    .replace(/\\perp\b/g, '⊥')
+    .replace(/\\triangle\b|\\Delta\b/g, '△')
+    .replace(/\\angle\b/g, '∠')
+    .replace(/\\times\b/g, '×')
+    .replace(/\\cdot\b/g, '·')
+    .replace(/\\sqrt\{([^{}]+)\}/g, '√$1')
+    .replace(/\\d?frac\{([^{}]+)\}\{([^{}]+)\}/g, '$1/$2')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 const SUPERSCRIPT_CHARS = {
   0: '⁰',
   1: '¹',
@@ -221,29 +238,66 @@ function buildGeometryView(spec = {}) {
       y: 10 + ((point.y - minY) / height) * 78
     }
   })
-  const segments = (Array.isArray(spec.segments) ? spec.segments : [])
-    .filter(pair => Array.isArray(pair) && pair.length === 2 && normalized[pair[0]] && normalized[pair[1]])
-    .map((pair, index) => {
+  const segmentPair = value => {
+    if (Array.isArray(value) && value.length === 2) return value.map(String)
+    if (typeof value === 'string') {
+      const match = value.trim().match(/^([A-Za-z][A-Za-z0-9]?)([A-Za-z][A-Za-z0-9]?)$/)
+      return match ? [match[1], match[2]] : null
+    }
+    if (value && typeof value === 'object') {
+      if (value.start && value.end) return [String(value.start), String(value.end)]
+      if (value.from && value.to) return [String(value.from), String(value.to)]
+      if (Array.isArray(value.segment)) return value.segment.map(String).slice(0, 2)
+      if (typeof value.segment === 'string') return segmentPair(value.segment)
+    }
+    return null
+  }
+  const segmentStyle = (pair, index) => {
+    const a = normalized[pair[0]]
+    const b = normalized[pair[1]]
+    const dx = b.x - a.x
+    const dy = b.y - a.y
+    const length = Math.sqrt(dx * dx + dy * dy)
+    const angle = Math.atan2(dy, dx) * 180 / Math.PI
+    return {
+      id: `${index}`,
+      style: `left:${a.x}%;top:${a.y}%;width:${length}%;transform:rotate(${angle}deg);`
+    }
+  }
+  const rawSegments = (Array.isArray(spec.segments) ? spec.segments : [])
+    .map(segmentPair)
+    .filter(pair => pair && normalized[pair[0]] && normalized[pair[1]])
+  const segments = rawSegments.map(segmentStyle)
+  const labelNames = Array.isArray(spec.labels) && spec.labels.length
+    ? spec.labels.map(item => typeof item === 'string' ? item : String(item.point || item.name || item.label || '').trim()).filter(Boolean)
+    : entries.map(point => point.name)
+  const labels = labelNames.filter(name => normalized[name]).map(name => {
+    const pos = normalized[name]
+    return { id: name, label: name, style: `left:${pos.x}%;top:${pos.y}%;` }
+  })
+  const marks = []
+  ;(Array.isArray(spec.perpendicularMarks) ? spec.perpendicularMarks : []).forEach((mark, index) => {
+    const at = String(mark.at || mark.vertex || mark.intersection || '').trim()
+    if (at && normalized[at]) marks.push({ id: `perp-${index}`, style: `left:${normalized[at].x}%;top:${normalized[at].y}%;` })
+  })
+  ;(Array.isArray(spec.rightAngleMarks) ? spec.rightAngleMarks : []).forEach((mark, index) => {
+    const at = String(mark.vertex || '').trim()
+    if (at && normalized[at]) marks.push({ id: `right-${index}`, style: `left:${normalized[at].x}%;top:${normalized[at].y}%;` })
+  })
+  const lengthLabels = (Array.isArray(spec.lengthLabels) ? spec.lengthLabels : [])
+    .map((item, index) => {
+      const pair = segmentPair(item.segment || [item.from, item.to])
+      if (!pair || !normalized[pair[0]] || !normalized[pair[1]]) return null
       const a = normalized[pair[0]]
       const b = normalized[pair[1]]
-      const dx = b.x - a.x
-      const dy = b.y - a.y
-      const length = Math.sqrt(dx * dx + dy * dy)
-      const angle = Math.atan2(dy, dx) * 180 / Math.PI
       return {
         id: `${index}`,
-        style: `left:${a.x}%;top:${a.y}%;width:${length}%;transform:rotate(${angle}deg);`
+        text: displayMathSymbols(item.label || item.value || item.text || ''),
+        style: `left:${(a.x + b.x) / 2}%;top:${(a.y + b.y) / 2}%;`
       }
     })
-  const labels = entries.map(point => {
-    const pos = normalized[point.name]
-    return {
-      id: point.name,
-      label: point.name,
-      style: `left:${pos.x}%;top:${pos.y}%;`
-    }
-  })
-  return segments.length ? { type: 'geometry', segments, labels } : null
+    .filter(Boolean)
+  return segments.length ? { type: 'geometry', segments, labels, marks, lengthLabels } : null
 }
 
 function buildDiagramView(spec) {
@@ -265,6 +319,9 @@ function buildTableView(spec) {
 function enrichQuestionMath(question = {}) {
   return {
     ...question,
+    displayQuestion: displayMathSymbols(question.question),
+    displayAnswer: displayMathSymbols(question.answer),
+    displayExplanation: displayMathSymbols(question.explanation),
     questionParts: splitMathParts(withLatexText(question.question, question.questionLatex)),
     answerParts: splitMathParts(withLatexText(question.answer, question.answerLatex)),
     explanationSteps: stepsForQuestion(question),
@@ -277,6 +334,7 @@ module.exports = {
   splitMathParts,
   splitExplanationSteps,
   normalizeStructuredSteps,
+  displayMathSymbols,
   buildDiagramView,
   buildTableView,
   enrichQuestionMath

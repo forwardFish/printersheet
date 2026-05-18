@@ -1,7 +1,9 @@
 App({
   globalData: {
     lastWorksheet: null,
-    selectedPlan: null
+    selectedPlan: null,
+    purchaseReturn: null,
+    pendingGenerationDraft: null
   },
   onLaunch(options = {}) {
     const storage = require('./utils/storage')

@@ -2,7 +2,12 @@ import { createMockWorksheet } from './mockWorksheet.js'
 import { assertValidWorksheet, normalizeWorksheet, worksheetDefaults } from './worksheet.js'
 import { resolveAiProvider } from './aiProviders.js'
 import { extractExamBlueprintFromText, isFullPaperSimulation, validateExamBlueprint } from './examBlueprint.js'
-import { normalizeGeometryDiagramSpec } from './geometryRenderer.js'
+import { normalizeGeometryDiagramSpec, validateGeometryDiagramSpec } from './geometryRenderer.js'
+import {
+  classifyGeometryQuestion,
+  diagramSpecIsMeaningful,
+  shouldUseQuestionNumberFallback
+} from './geometryClassifier.js'
 
 const DEMO_QUESTION_PATTERNS = [
   /x\s*\+\s*3\s*=\s*8/i,
@@ -29,7 +34,7 @@ export function aiRuntimeConfig(env = process.env) {
     ...provider,
     mockMode: envFlag(env.AI_MOCK_MODE),
     fallbackToMock: envFlag(env.AI_FALLBACK_TO_MOCK),
-    requestTimeoutMs: envNumber(env.AI_REQUEST_TIMEOUT_MS, 240000),
+    requestTimeoutMs: envNumber(env.AI_REQUEST_TIMEOUT_MS, 10 * 60 * 1000),
     maxTokens: envNumber(env.AI_MAX_TOKENS, 24000),
     thinkingMode: ['enabled', 'disabled'].includes(thinkingMode) ? thinkingMode : 'disabled'
   }
@@ -52,6 +57,68 @@ export function extractJson(text) {
 function expectedQuestionCount(questionCount) {
   const count = Number(questionCount || 0)
   return Number.isFinite(count) && count > 0 ? count : 10
+}
+
+function sourceBlueprintItemForQuestion(sourceBlueprint = null, number = 0) {
+  const items = sourceBlueprint?.sourceQuestionBlueprints
+  if (!Array.isArray(items)) return null
+  return items.find(item => Number(item.number) === Number(number)) || null
+}
+
+function applyGeometryPolicyToQuestion(question, sourceBlueprint = null) {
+  const number = Number(question.number || 0)
+  const sourceItem = sourceBlueprintItemForQuestion(sourceBlueprint, number)
+  const classification = classifyGeometryQuestion({
+    ...question,
+    sourceBlueprint: sourceItem,
+    originalStem: sourceItem?.originalStem,
+    knowledgePoints: sourceItem?.knowledgePoints || question.knowledgePoints,
+    needsDiagram: question.needsDiagram ?? sourceItem?.needsDiagram,
+    diagramSpecRequired: question.diagramSpecRequired ?? sourceItem?.diagramSpecRequired
+  })
+  const next = {
+    ...question,
+    needsDiagram: classification.needsDiagram,
+    diagramSpecRequired: classification.diagramSpecRequired,
+    geometryDomain: classification.geometryDomain,
+    geometryTemplateFamily: classification.templateFamily,
+    geometryClassification: classification
+  }
+  const meaningfulDiagram = diagramSpecIsMeaningful(question.diagramSpec)
+  if (!classification.needsDiagram) {
+    if (meaningfulDiagram && validateGeometryDiagramSpec(question.diagramSpec, number).valid) {
+      throw new Error(`Question ${number || '?'} is not diagram-required but returned diagramSpec`)
+    }
+    if (meaningfulDiagram) {
+      delete next.diagramSpec
+      next.diagramSpecSource = 'stripped-non-geometry'
+    }
+    return next
+  }
+
+  const allowFallback = shouldUseQuestionNumberFallback(number, classification)
+  const normalizedDiagram = normalizeGeometryDiagramSpec(question.diagramSpec, number, {
+    allowFallback,
+    lockTemplates: allowFallback
+  })
+  if (!normalizedDiagram.spec) {
+    throw new Error(`Question ${number || '?'} requires diagramSpec: ${classification.reason}`)
+  }
+  return {
+    ...next,
+    diagramSpec: normalizedDiagram.spec,
+    diagramSpecSource: normalizedDiagram.source
+  }
+}
+
+function applyWorksheetGeometryPolicy(worksheet, sourceBlueprint = null) {
+  return {
+    ...worksheet,
+    questions: (worksheet.questions || []).map(question => applyGeometryPolicyToQuestion({
+      ...question,
+      subject: question.subject || worksheet.subject
+    }, sourceBlueprint))
+  }
 }
 
 export function assertAiWorksheetPayloadSchema(payload, { questionCount = 0, expectedCount = 0, sourceBlueprint = null } = {}) {
@@ -94,6 +161,7 @@ export function assertAiWorksheetPayloadSchema(payload, { questionCount = 0, exp
 export function assertWorksheetQuality(worksheet) {
   const seen = new Set()
   for (const question of worksheet.questions || []) {
+    applyGeometryPolicyToQuestion(question)
     const text = String(question.question || '').replace(/\s+/g, '')
     if (seen.has(text)) throw new Error(`AI 题目重复：第 ${question.number || '?'} 题`)
     seen.add(text)
@@ -185,6 +253,7 @@ export function assertFullPaperSimulation(worksheet, sourceBlueprint = null) {
 function buildPrompt({ prompt, fileText, defaults, questionCount, sourceBlueprint = null, retryReason = '' }) {
   const count = Number(sourceBlueprint?.totalQuestions || expectedQuestionCount(questionCount))
   const parsedUpload = hasParsedUpload(fileText)
+  const chemistrySubject = /化学|chem/i.test(String(defaults.subject || prompt || ''))
   const schema = {
     title: '',
     grade: '',
@@ -198,6 +267,10 @@ function buildPrompt({ prompt, fileText, defaults, questionCount, sourceBlueprin
       skill: '',
       question: '',
       questionLatex: '可选：题干中的核心数学表达式 LaTeX，例如 \\frac{x+1}{2}=3、\\sqrt{5}、\\angle ABC',
+      needsDiagram: false,
+      diagramSpecRequired: false,
+      geometryDomain: 'none',
+      geometryTemplateFamily: '',
       diagramSpec: { type: 'none', points: {}, segments: [], labels: [] },
       tableSpec: { headers: [], rows: [] },
       options: [],
@@ -240,10 +313,20 @@ function buildPrompt({ prompt, fileText, defaults, questionCount, sourceBlueprin
         : 'sourceAnchors 返回空数组。',
       '严禁输出演示题、样例题或常见占位题；不要使用 x+3=8、2x=8、x+1=3、2x-1=5、3(x-2)=9 等示例。',
       '每一道题都必须是新编题，题干、数字、答案、解析不得互相重复。',
+      chemistrySubject
+        ? '当前是化学出题：必须按化学学科规则生成。化学式、离子、电荷、化合价、化学方程式、沉淀/气体符号、反应条件必须正确；化学方程式必须配平；不得把化学式当作普通数学表达式处理。'
+        : '',
+      chemistrySubject
+        ? '化学题不要输出数学几何 diagramSpec。只有实验装置、微观示意图、溶解度曲线、流程图、质量关系图等化学图像才允许给 diagramSpec/tableSpec/chartSpec；没有图时 diagramSpec 必须为 { "type": "none" }。'
+        : '',
+      chemistrySubject
+        ? '化学选项中的公式请优先写成普通文本，例如 H2O、CaCO3、Mg^2+、SO4^2-、CO2 \\uparrow、2H2O \\xlongequal{通电} 2H2 \\uparrow + O2 \\uparrow；不要输出无法渲染的整段复杂 LaTeX。'
+        : '',
       '数学题必须优先结构化：question 写自然中文题干，questionLatex/answerLatex 只放核心公式；解析必须用 explanationSteps 或 proofSteps 拆成自然步骤，不要输出一整坨长文本。',
       '重点照顾数学几何、函数图像、数轴、方程组、分式、根号、上下标和证明题。涉及这些内容时，公式必须写成 LaTeX；证明题 proofSteps 每步写清依据。',
       '涉及几何图、数轴、函数图像、电路图、光路图、化学方程式或实验图时，不要写“图略”；能抽象为图的题目必须返回 diagramSpec，表格题必须返回 tableSpec。',
-      'diagramSpec 可使用类型：number_line、grid_triangle、parallel_lines、congruent_triangles、triangle_ruler、generic_geometry、angle_bisector、fence_area；几何图至少包含 points、segments、labels。',
+      'diagramSpec 可使用类型：number_line、grid_triangle、parallel_lines、congruent_triangles、triangle_ruler、generic_geometry、angle_bisector、fence_area、analytic_curve、solid_diagram、template；几何图至少包含 points、segments、labels。',
+      '高频平面几何模板优先使用 templateId：right_triangle_altitude_to_hypotenuse、triangle_parallel_segment。segments 推荐输出 [["A","B"],["A","C"]]；如果输出 {start,end}/{from,to} 也会被系统归一化。',
       '如果用户要求整卷仿真，保持结构、题型、知识点和难度比例相似，但必须改写题目。',
       sourceBlueprint
         ? '当前是整卷仿真：必须严格按提供的 sourceQuestionBlueprints 逐题生成变式题，题号、题型、分值、知识点、难度一一对应。'
@@ -253,6 +336,14 @@ function buildPrompt({ prompt, fileText, defaults, questionCount, sourceBlueprin
         : '',
       `questions 数组长度必须严格等于 ${count}。`,
       '输出 JSON 必须符合这个 schema：',
+      'Classify every math question first. Set needsDiagram=true only when the stem or blueprint requires a visual relation; otherwise set needsDiagram=false and diagramSpec={ "type": "none" }.',
+      'If needsDiagram=true, diagramSpec is mandatory. If a question is algebra/computation only, any non-none geometry diagramSpec is invalid.',
+      'Math geometry classification priority is analytic_geometry > solid_geometry > plane_geometry > number_line. Non-math subjects must not use math geometry diagramSpec.',
+      'Analytic geometry with ellipse/hyperbola/parabola/focus/eccentricity/asymptote/directrix/tangent/intersection must set needsDiagram=true and use diagramSpec.type="analytic_curve".',
+      'Solid geometry with cube/cuboid/pyramid/dihedral angle/line-plane angle/plane/edge must set needsDiagram=true and use diagramSpec.type="solid_diagram".',
+      'Supported new diagramSpec types: analytic_curve { curveKind,equation,axes,points,lines,asymptotes,labels } and solid_diagram { solidKind,templateId,vertices,edges,hiddenEdges,faces,marks,labels }.',
+      'For right-triangle altitude problems use diagramSpec.type="template", templateId="right_triangle_altitude_to_hypotenuse", with points A/B/C/D, segments AB/AC/BC/CD, rightAngleMarks, perpendicularMarks, and lengthLabels.',
+      'For triangle segment parallel problems use diagramSpec.type="template", templateId="triangle_parallel_segment", with points A/B/C/D/E, segments AB/AC/BC/DE, parallelMarks, and lengthLabels.',
       JSON.stringify(schema)
     ].join('\n'),
     user: [
@@ -357,7 +448,12 @@ function buildBlueprintPrompt({ prompt, fileText, defaults, baselineBlueprint, r
       difficulty: '',
       type: '',
       score: 0,
-      expectedAnswerShape: ''
+      expectedAnswerShape: '',
+      needsDiagram: false,
+      diagramSpecRequired: false,
+      geometryDomain: 'none',
+      geometryTemplateFamily: '',
+      diagramRequiredReason: ''
     }]
   }
   return {
@@ -454,7 +550,12 @@ function buildBatchBlueprintPrompt({ prompt, defaults, batch, items, retryReason
       difficulty: '',
       type: batch.label,
       score: batch.label === '解答题' ? 6 : 3,
-      expectedAnswerShape: ''
+      expectedAnswerShape: '',
+      needsDiagram: false,
+      diagramSpecRequired: false,
+      geometryDomain: 'none',
+      geometryTemplateFamily: '',
+      diagramRequiredReason: ''
     }]
   }
   return {
@@ -570,7 +671,7 @@ async function generateWorksheetFromBlueprint({ prompt, fileText, defaults, sour
       attempts.push({ stage: 'worksheet', attempt, messages, raw: content })
       const payload = extractJson(content)
       assertAiWorksheetPayloadSchema(payload, { questionCount: expectedCount, expectedCount, sourceBlueprint })
-      const worksheet = assertValidWorksheet(normalizeWorksheet(payload, {
+      const worksheet = assertValidWorksheet(applyWorksheetGeometryPolicy(normalizeWorksheet(payload, {
         ...defaults,
         sourceQuestionBlueprints: sourceBlueprint?.sourceQuestionBlueprints,
         examMeta: sourceBlueprint
@@ -582,7 +683,7 @@ async function generateWorksheetFromBlueprint({ prompt, fileText, defaults, sour
               durationMinutes: 120
             }
           : null
-      }))
+      }), sourceBlueprint))
       assertWorksheetQuality(worksheet)
       assertUploadedSourceUsage(worksheet, fileText)
       assertFullPaperSimulation(worksheet, sourceBlueprint)
@@ -743,11 +844,11 @@ async function generateWorksheetFromBlueprintInBatches({ prompt, fileText, defau
       explanation: question.explanation
     }))
   }
-  const worksheet = assertValidWorksheet(normalizeWorksheet(payload, {
+  const worksheet = assertValidWorksheet(applyWorksheetGeometryPolicy(normalizeWorksheet(payload, {
     ...defaults,
     sourceQuestionBlueprints: sourceBlueprint.sourceQuestionBlueprints,
     examMeta: payload.examMeta
-  }))
+  }), sourceBlueprint))
   assertWorksheetQuality(worksheet)
   assertUploadedSourceUsage(worksheet, fileText)
   assertFullPaperSimulation(worksheet, sourceBlueprint)
@@ -782,7 +883,12 @@ function compactFullPaperBlueprintItem(item) {
     difficulty: String(item.difficulty || '中等'),
     knowledgePoints: Array.isArray(item.knowledgePoints) ? item.knowledgePoints.map(String).filter(Boolean) : [],
     expectedAnswerShape: String(item.expectedAnswerShape || ''),
-    variationPlan: String(item.variationPlan || '')
+    variationPlan: String(item.variationPlan || ''),
+    needsDiagram: Boolean(item.needsDiagram || item.diagramSpecRequired),
+    diagramSpecRequired: Boolean(item.diagramSpecRequired || item.needsDiagram),
+    geometryDomain: String(item.geometryDomain || ''),
+    geometryTemplateFamily: String(item.geometryTemplateFamily || item.templateFamily || ''),
+    diagramRequiredReason: String(item.diagramRequiredReason || '')
   }
 }
 
@@ -799,7 +905,11 @@ function buildOptimizedFullPaperPrompt({ prompt, defaults, sourceBlueprint, batc
       skill: '知识点',
       question: '题干',
       questionLatex: 'optional LaTeX math expression for the stem',
-      diagramSpec: { type: 'template', templateId: 'triangle_ruler_overlap_angle', labels: [] },
+      needsDiagram: false,
+      diagramSpecRequired: false,
+      geometryDomain: 'none',
+      geometryTemplateFamily: '',
+      diagramSpec: { type: 'none', points: {}, segments: [], labels: [] },
       tableSpec: { headers: [], rows: [] },
       options: batch.from <= 10 ? ['A', 'B', 'C', 'D'] : [],
       answer: '答案',
@@ -823,8 +933,12 @@ function buildOptimizedFullPaperPrompt({ prompt, defaults, sourceBlueprint, batc
       'explanationSteps/proofSteps 必须把解析拆成自然步骤，不要在步骤里写 1、2、3 等序号；不要把解析塞成一大段。',
       '只返回符合 schema 的 JSON：',
       'Use LaTeX only in questionLatex/answerLatex, for example a^2, \\frac{1}{2}, \\sqrt{5}, \\angle ABC.',
+      'Each blueprint item includes needsDiagram/diagramSpecRequired. Algebra, equations, inequalities, powers, factors, and pure computation must keep needsDiagram=false and diagramSpec={ "type": "none" }.',
+      'Only questions whose blueprint or stem truly requires a diagram may set needsDiagram=true. If needsDiagram=true, diagramSpec is mandatory and must match geometryDomain/geometryTemplateFamily.',
       'For geometry questions, diagramSpec is required. Geometry diagramSpec must include points, segments, labels. Parallel diagrams must include parallelMarks. Congruent diagrams must include equalMarks. Grid diagrams must include gridSpec.',
-      'Prefer semantic templateId over free coordinates when possible. Known geometry templateIds: triangle_ruler_overlap_angle, congruent_triangles_on_line, parallel_lines_transversal, grid_triangle_construction, angle_bisector_rays.',
+      'For analytic_geometry use diagramSpec.type="analytic_curve" with curveKind ellipse/parabola/hyperbola plus axes, equation, points, lines/asymptotes when relevant.',
+      'For solid_geometry use diagramSpec.type="solid_diagram"; supported templateId values include cube_midpoint_dihedral_angle and square_pyramid_parallel_plane.',
+      'Prefer semantic templateId over free coordinates when possible. Known geometry templateIds: right_triangle_altitude_to_hypotenuse, triangle_parallel_segment, triangle_ruler_overlap_angle, congruent_triangles_on_line, parallel_lines_transversal, grid_triangle_construction, angle_bisector_rays.',
       'For table/application questions, tableSpec is required when the source question has a table.',
       JSON.stringify(schema)
     ].join('\n'),
@@ -842,7 +956,7 @@ function buildOptimizedFullPaperPrompt({ prompt, defaults, sourceBlueprint, batc
   }
 }
 
-function validateOptimizedFullPaperQuestions(payload, batch) {
+function validateOptimizedFullPaperQuestions(payload, batch, sourceBlueprint = null) {
   const questions = payload?.questions || payload?.worksheet?.questions
   if (!Array.isArray(questions) || questions.length !== batch.expectedCount) {
     throw new Error(`${batch.label}必须生成 ${batch.expectedCount} 题，当前 ${Array.isArray(questions) ? questions.length : 0}`)
@@ -860,7 +974,25 @@ function validateOptimizedFullPaperQuestions(payload, batch) {
     if (!String(question.question || '').trim() || !String(question.answer || '').trim() || !String(question.explanation || '').trim()) {
       throw new Error(`${batch.label}第 ${number} 题缺少题干、答案或解析`)
     }
-    const normalizedDiagram = normalizeGeometryDiagramSpec(question.diagramSpec, number)
+    const sourceItem = sourceBlueprintItemForQuestion(sourceBlueprint, number)
+    const geometry = classifyGeometryQuestion({
+      ...question,
+      sourceBlueprint: sourceItem,
+      originalStem: sourceItem?.originalStem,
+      knowledgePoints: sourceItem?.knowledgePoints || question.knowledgePoints,
+      needsDiagram: question.needsDiagram ?? sourceItem?.needsDiagram,
+      diagramSpecRequired: question.diagramSpecRequired ?? sourceItem?.diagramSpecRequired
+    })
+    if (!geometry.needsDiagram && diagramSpecIsMeaningful(question.diagramSpec) && validateGeometryDiagramSpec(question.diagramSpec, number).valid) {
+      throw new Error(`Question ${number} is not diagram-required but returned diagramSpec`)
+    }
+    const allowFallback = shouldUseQuestionNumberFallback(number, geometry)
+    const normalizedDiagram = geometry.needsDiagram
+      ? normalizeGeometryDiagramSpec(question.diagramSpec, number, { allowFallback, lockTemplates: allowFallback })
+      : { spec: null, source: 'none' }
+    if (geometry.needsDiagram && !normalizedDiagram.spec) {
+      throw new Error(`Question ${number} requires diagramSpec: ${geometry.reason}`)
+    }
     return {
       number,
       section: String(question.section || sectionInfo.section).trim(),
@@ -872,6 +1004,11 @@ function validateOptimizedFullPaperQuestions(payload, batch) {
       options,
       answer: String(question.answer || '').trim(),
       answerLatex: String(question.answerLatex || '').trim(),
+      needsDiagram: geometry.needsDiagram,
+      diagramSpecRequired: geometry.diagramSpecRequired,
+      geometryDomain: geometry.geometryDomain,
+      geometryTemplateFamily: geometry.templateFamily,
+      geometryClassification: geometry,
       diagramSpec: normalizedDiagram.spec,
       diagramSpecSource: normalizedDiagram.source,
       tableSpec: question.tableSpec && typeof question.tableSpec === 'object' && !Array.isArray(question.tableSpec) ? question.tableSpec : null,
@@ -899,7 +1036,7 @@ async function generateWorksheetFromBlueprintOptimized({ prompt, fileText, defau
       try {
         const content = await callChatContent({ ...messages, config, temperature: 0.25, maxTokens: batch.maxTokens })
         attempts.push({ stage: 'worksheet', batch: batch.id, attempt, messages, raw: content })
-        questions.push(...validateOptimizedFullPaperQuestions(extractJson(content), batch))
+        questions.push(...validateOptimizedFullPaperQuestions(extractJson(content), batch, sourceBlueprint))
         lastError = null
         break
       } catch (error) {
@@ -942,11 +1079,11 @@ async function generateWorksheetFromBlueprintOptimized({ prompt, fileText, defau
       explanation: question.explanation
     }))
   }
-  const worksheet = assertValidWorksheet(normalizeWorksheet(payload, {
+  const worksheet = assertValidWorksheet(applyWorksheetGeometryPolicy(normalizeWorksheet(payload, {
     ...defaults,
     sourceQuestionBlueprints: sourceBlueprint.sourceQuestionBlueprints,
     examMeta: payload.examMeta
-  }))
+  }), sourceBlueprint))
   assertWorksheetQuality(worksheet)
   assertUploadedSourceUsage(worksheet, fileText)
   assertFullPaperSimulation(worksheet, sourceBlueprint)
@@ -1040,7 +1177,7 @@ export async function generateWorksheetWithAI({ prompt, fileText = '', grade = '
       })
       const payload = extractJson(content)
       assertAiWorksheetPayloadSchema(payload, { questionCount, expectedCount, sourceBlueprint })
-      const worksheet = assertValidWorksheet(normalizeWorksheet(payload, {
+      const worksheet = assertValidWorksheet(applyWorksheetGeometryPolicy(normalizeWorksheet(payload, {
         ...defaults,
         sourceQuestionBlueprints: sourceBlueprint?.sourceQuestionBlueprints,
         examMeta: sourceBlueprint
@@ -1052,7 +1189,7 @@ export async function generateWorksheetWithAI({ prompt, fileText = '', grade = '
               durationMinutes: 120
             }
           : null
-      }))
+      }), sourceBlueprint))
       assertWorksheetQuality(worksheet)
       assertUploadedSourceUsage(worksheet, fileText)
       assertFullPaperSimulation(worksheet, sourceBlueprint)

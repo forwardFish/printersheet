@@ -1,6 +1,17 @@
 <view class="nav {{transparent ? 'transparent' : ''}}" style="padding-top: {{statusBarHeight}}px; height: {{statusBarHeight + navHeight}}px;">
+  <view class="status-time">9:41</view>
+  <view class="status-icons">
+    <view class="signal"><text></text><text></text><text></text></view>
+    <view class="wifi"></view>
+    <view class="battery"></view>
+  </view>
   <view class="nav-inner" style="height: {{navHeight}}px; padding-right: {{menuWidth + menuRight + 8}}px;">
-    <view wx:if="{{back}}" class="back" bindtap="goBack">‹</view>
+    <view wx:if="{{back}}" class="back" bindtap="goBack"></view>
     <view class="title">{{title}}</view>
+  </view>
+  <view class="capsule" style="right: {{menuRight}}px; top: {{statusBarHeight + 8}}px; width: {{menuWidth}}px;">
+    <view class="dot-wrap"><text></text><text></text><text></text></view>
+    <view class="cap-line"></view>
+    <view class="cap-circle"></view>
   </view>
 </view>

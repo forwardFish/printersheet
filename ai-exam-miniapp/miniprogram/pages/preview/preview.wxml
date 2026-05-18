@@ -1,208 +1,78 @@
 <view class="preview-page">
   <nav-bar title="练习卷预览" back="{{true}}"></nav-bar>
   <view class="container">
-    <view class="status-card {{statusType}}">
-      <view class="status-dot"></view>
-      <text>{{statusMessage}}</text>
+    <view class="tabs">
+      <view class="tab {{tab==='student'?'active':''}}" data-tab="student" bindtap="switchTab">学生练习版</view>
+      <view class="tab {{tab==='answer'?'active':''}}" data-tab="answer" bindtap="switchTab">答案解析版</view>
     </view>
 
-    <view wx:if="{{!worksheet}}" class="empty-card card">
-      <view class="empty-title">暂无练习卷</view>
-      <view class="empty-desc">先输入出题要求或上传资料，生成后会在这里查看学生练习版、答案解析版和整卷仿真信息。</view>
-      <button class="primary-btn empty-btn" bindtap="goHome">去生成练习卷</button>
+    <view class="paper-card card">
+      <view class="paper-title">{{worksheet.title}}</view>
+      <view class="paper-meta">
+        <text>班级：__________</text>
+        <text>姓名：__________</text>
+        <text>得分：__________</text>
+      </view>
+
+      <block wx:if="{{tab==='student'}}">
+        <view wx:for="{{sections}}" wx:key="name" class="paper-section">
+          <view class="section-name">{{item.name}}</view>
+          <view wx:for="{{item.questions}}" wx:for-item="q" wx:key="number" class="question">
+            <view class="stem">{{q.number}}. {{q.displayQuestion ? q.displayQuestion : q.question}}</view>
+            <view wx:if="{{q.diagramView}}" class="diagram-box">
+              <view wx:if="{{q.diagramView.type==='geometry'}}" class="geometry-diagram">
+                <view wx:for="{{q.diagramView.segments}}" wx:for-item="seg" wx:key="id" class="diagram-segment" style="{{seg.style}}"></view>
+                <view wx:for="{{q.diagramView.marks}}" wx:for-item="mark" wx:key="id" class="diagram-right-mark" style="{{mark.style}}"></view>
+                <view wx:for="{{q.diagramView.labels}}" wx:for-item="label" wx:key="id" class="diagram-label" style="{{label.style}}">{{label.label}}</view>
+                <view wx:for="{{q.diagramView.lengthLabels}}" wx:for-item="len" wx:key="id" class="diagram-length" style="{{len.style}}">{{len.text}}</view>
+              </view>
+              <view wx:elif="{{q.diagramView.type==='number_line'}}" class="number-line-diagram">
+                <view class="number-line-axis"></view>
+                <view wx:for="{{q.diagramView.ticks}}" wx:for-item="tick" wx:key="id" class="number-line-tick" style="left:{{tick.left}}"><text>{{tick.label}}</text></view>
+                <view wx:for="{{q.diagramView.labels}}" wx:for-item="label" wx:key="id" class="number-line-point" style="left:{{label.left}}"><text>{{label.label}}</text></view>
+              </view>
+            </view>
+            <view wx:if="{{q.options.length}}" class="options">
+              <text wx:for="{{q.options}}" wx:for-item="op" wx:key="*this">{{op}}</text>
+            </view>
+          </view>
+        </view>
+      </block>
+
+      <block wx:else>
+        <view wx:for="{{answerItems}}" wx:key="number" class="answer-item" data-number="{{item.number}}" bindtap="toggleAnswer">
+          <view class="answer-head">{{item.number}}. {{item.displayQuestion ? item.displayQuestion : item.question}}</view>
+          <view wx:if="{{item.expanded}}" class="answer-body">答案：{{item.answer}}。解析：{{item.explanation}}</view>
+        </view>
+      </block>
+
+      <view class="page-index">预览示意，完整分页请下载 PDF 查看</view>
     </view>
 
-    <block wx:else>
-      <view class="preview-summary {{isExamSimulation ? 'simulation' : 'practice'}}">
-        <view>
-          <view class="mode-badge">{{modeLabel}}</view>
-          <view class="summary-title">{{worksheet.title}}</view>
-          <view class="summary-desc">{{modeDesc}}</view>
-        </view>
-        <view class="summary-count">{{worksheet.questions.length}} 题</view>
+    <view class="download-row">
+      <button class="download-card card" loading="{{exportLoading==='pdf'}}" bindtap="openPdf">
+        <image src="/assets/pdf.png" class="download-icon"></image>
+        <view><view class="download-title">下载 PDF</view><view class="download-sub">{{canRemoveWatermark ? '（无水印）' : '（带水印）'}}</view></view>
+      </button>
+      <button class="download-card card" loading="{{exportLoading==='word'}}" bindtap="openWord">
+        <image src="/assets/word.png" class="download-icon"></image>
+        <view><view class="download-title">下载 Word</view><view class="download-sub">（可编辑）</view></view>
+        <view wx:if="{{!canDownloadWord}}" class="lock">▣</view>
+      </button>
+    </view>
+
+    <button class="regen card" loading="{{loading}}" bindtap="regenerate">↻ 重新生成</button>
+
+    <view wx:if="{{!isPaid}}" class="upgrade-card">
+      <image src="/assets/crown.png" class="upgrade-crown"></image>
+      <view class="upgrade-copy">
+        <view>升级会员</view>
+        <text>下载无水印、Word 可编辑、答案解析等更多权益</text>
       </view>
+      <button bindtap="goPackages">去升级</button>
+    </view>
 
-      <view wx:if="{{sourceStatusText}}" class="source-card">
-        <view class="source-title">{{sourceStatusText}}</view>
-        <view wx:if="{{sourceNotice}}" class="source-notice">{{sourceNotice}}</view>
-      </view>
-
-      <view wx:if="{{isExamSimulation}}" class="blueprint-card card">
-        <view class="blueprint-title">仿真目标</view>
-        <view class="blueprint-row">
-          <text>结构相似</text>
-          <text>知识点相似</text>
-          <text>难度相近</text>
-        </view>
-        <view wx:if="{{blueprintSections.length}}" class="blueprint-sections">
-          <view wx:for="{{blueprintSections}}" wx:key="name" class="blueprint-section">
-            <text>{{item.name}}</text>
-            <text>{{item.questionCount}} 题 · {{item.difficulty || '中等'}}</text>
-          </view>
-        </view>
-      </view>
-
-      <view class="tabs">
-        <view class="tab {{tab==='student'?'active':''}}" data-tab="student" bindtap="switchTab">学生练习版</view>
-        <view class="tab {{tab==='answer'?'active':''}}" data-tab="answer" bindtap="switchTab">答案解析版</view>
-      </view>
-
-      <view class="paper card {{isExamSimulation ? 'simulation-paper' : ''}}">
-        <view class="paper-head">
-          <view class="paper-title">{{worksheet.title}}</view>
-          <view class="paper-subtitle">{{worksheet.grade}} · {{worksheet.subject}} · {{modeLabel}}</view>
-        </view>
-        <view wx:if="{{tab==='student'}}" class="paper-meta">
-          <text>班级：________</text>
-          <text>姓名：________</text>
-          <text>得分：________</text>
-        </view>
-        <view wx:if="{{tab==='student'}}">
-          <block wx:for="{{sections}}" wx:key="name">
-            <view class="section-title">
-              <text>{{item.name}}</text>
-              <text>{{item.questionCount}} 题</text>
-            </view>
-            <block wx:for="{{item.questions}}" wx:for-item="q" wx:key="number">
-              <view class="question {{q.type === '解答题' ? 'long-answer' : ''}}">
-                <view class="q-meta">
-                  <text>{{q.type}}</text>
-                  <text>{{q.difficulty}}</text>
-                  <text>{{q.skill}}</text>
-                </view>
-                <view class="q-title">
-                  <text class="q-number">{{q.number}}.</text>
-                  <block wx:for="{{q.questionParts}}" wx:for-item="part" wx:key="id">
-                    <text class="{{part.type === 'math' ? 'latex-inline' : 'prose-inline'}}">{{part.text}}</text>
-                  </block>
-                </view>
-                <view wx:if="{{q.tableView}}" class="mini-table">
-                  <view wx:if="{{q.tableView.headers.length}}" class="mini-table-row head">
-                    <text wx:for="{{q.tableView.headers}}" wx:for-item="cell" wx:key="*this">{{cell}}</text>
-                  </view>
-                  <view wx:for="{{q.tableView.rows}}" wx:for-item="row" wx:key="*this" class="mini-table-row">
-                    <text wx:for="{{row}}" wx:for-item="cell" wx:key="*this">{{cell}}</text>
-                  </view>
-                </view>
-                <view wx:if="{{q.diagramView && q.diagramView.type === 'number_line'}}" class="diagram-card number-line-card">
-                  <view class="number-axis"></view>
-                  <view wx:for="{{q.diagramView.ticks}}" wx:for-item="tick" wx:key="id" class="number-tick" style="left:{{tick.left}}">
-                    <view class="tick-mark"></view>
-                    <text>{{tick.label}}</text>
-                  </view>
-                  <view wx:for="{{q.diagramView.labels}}" wx:for-item="point" wx:key="id" class="number-point" style="left:{{point.left}}">
-                    <view class="point-dot"></view>
-                    <text>{{point.label}}</text>
-                  </view>
-                </view>
-                <view wx:if="{{q.diagramView && q.diagramView.type === 'geometry'}}" class="diagram-card geometry-card">
-                  <view wx:for="{{q.diagramView.segments}}" wx:for-item="seg" wx:key="id" class="geometry-line" style="{{seg.style}}"></view>
-                  <view wx:for="{{q.diagramView.labels}}" wx:for-item="label" wx:key="id" class="geometry-label" style="{{label.style}}">{{label.label}}</view>
-                </view>
-                <view wx:if="{{q.options && q.options.length}}" class="options">
-                  <view wx:for="{{q.options}}" wx:for-item="op" wx:key="*this" class="option">{{op}}</view>
-                </view>
-                <view wx:else class="blank-wrap">
-                  <view class="blank-line"></view>
-                  <view class="blank-line"></view>
-                  <view wx:if="{{q.type === '解答题'}}" class="blank-line"></view>
-                </view>
-              </view>
-            </block>
-          </block>
-          <view class="paper-note">提示：学生版不显示答案，适合直接打印练习。</view>
-        </view>
-        <view wx:else>
-          <block wx:for="{{answerItems}}" wx:for-item="q" wx:key="number">
-            <view class="answer-item" data-number="{{q.number}}" bindtap="toggleAnswer">
-              <view class="answer-title">
-                <view class="answer-main">
-                  <text class="answer-number">{{q.number}}.</text>
-                  <text class="answer-label">答案</text>
-                  <block wx:for="{{q.answerParts}}" wx:for-item="part" wx:key="id">
-                    <text class="{{part.type === 'math' ? 'latex-inline answer-math' : 'prose-inline'}}">{{part.text}}</text>
-                  </block>
-                </view>
-                <text class="answer-toggle">{{q.expanded ? '收起' : '展开'}}</text>
-              </view>
-              <view wx:if="{{q.expanded}}" class="explain-box">
-                <view class="explain-head">解析</view>
-                <view wx:for="{{q.explanationSteps}}" wx:for-item="step" wx:key="id" class="explain-step">
-                  <view class="step-content">
-                    <block wx:for="{{step.parts}}" wx:for-item="part" wx:key="id">
-                      <text class="{{part.type === 'math' ? 'latex-inline' : 'prose-inline'}}">{{part.text}}</text>
-                    </block>
-                  </view>
-                </view>
-              </view>
-            </view>
-          </block>
-          <view class="paper-note">答案解析版可用于核对和讲解，导出完整答案页将在后续导出任务继续增强。</view>
-        </view>
-        <view wx:if="{{tab==='student'}}" class="page-index">学生练习版</view>
-      </view>
-
-      <view class="action-panel">
-        <view class="panel-head">
-          <view>
-            <view class="panel-title">导出与分享</view>
-            <view class="panel-subtitle">PDF / Word 下载均不消耗点数</view>
-          </view>
-          <view class="panel-pill">{{canRemoveWatermark ? '无水印' : '带水印'}}</view>
-        </view>
-
-        <view class="export-grid">
-          <view class="export-tile {{exportLoading==='pdf' ? 'busy' : ''}}" bindtap="openPdf">
-            <view class="export-icon pdf">
-              <image src="/assets/pdf.png"></image>
-            </view>
-            <view class="export-copy">
-              <view class="export-title">{{exportLoading==='pdf' ? '生成中...' : '下载 PDF'}}</view>
-              <view class="export-desc">{{canRemoveWatermark ? '无水印版本' : '免费版带水印'}}</view>
-            </view>
-          </view>
-          <view class="export-tile {{exportLoading==='word' ? 'busy' : ''}} {{canDownloadWord ? '' : 'locked'}}" bindtap="openWord">
-            <view class="export-icon word">
-              <image src="/assets/word.png"></image>
-            </view>
-            <view class="export-copy">
-              <view class="export-title">{{exportLoading==='word' ? '生成中...' : '下载 Word'}}</view>
-              <view class="export-desc">{{canDownloadWord ? 'DOCX 可编辑' : 'Pro / Teacher'}}</view>
-            </view>
-            <view wx:if="{{!canDownloadWord}}" class="mini-lock">锁</view>
-          </view>
-        </view>
-
-        <view wx:if="{{exportStatusText}}" class="inline-status">{{exportStatusText}}</view>
-
-        <view class="reward-strip">
-          <view class="reward-mark">点</view>
-          <view class="reward-copy">
-            <view class="reward-title">赚点数</view>
-            <view class="reward-desc">分享后自动 +1，每天一次</view>
-          </view>
-          <view class="reward-actions">
-            <button class="mini-btn primary" open-type="share" bindtap="markShareIntent">分享</button>
-          </view>
-        </view>
-
-        <view class="invite-row" bindtap="copyInviteLink">
-          <text>复制邀请链接</text>
-          <text>好友首次购买奖励 5 点</text>
-        </view>
-        <view wx:if="{{shareStatusText}}" class="inline-status">{{shareStatusText}}</view>
-      </view>
-
-      <button class="regen-btn" loading="{{loading}}" disabled="{{loading}}" bindtap="regenerate">{{loading ? '正在重新生成...' : '重新生成同类卷'}}</button>
-
-      <view wx:if="{{!canRemoveWatermark || !canDownloadWord}}" class="upgrade-card">
-        <image src="/assets/crown.png" class="crown"></image>
-        <view class="upgrade-copy">
-          <view class="upgrade-title">升级会员</view>
-          <view class="upgrade-desc">无水印 PDF、Word 下载、完整答案解析和更多点数</view>
-        </view>
-        <button class="upgrade-btn" bindtap="goPackages">去升级</button>
-      </view>
-    </block>
+    <view wx:if="{{exportStatusText}}" class="inline-status">{{exportStatusText}}</view>
+    <view wx:if="{{shareStatusText}}" class="inline-status">{{shareStatusText}}</view>
   </view>
 </view>

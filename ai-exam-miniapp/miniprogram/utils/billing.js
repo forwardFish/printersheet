@@ -5,7 +5,7 @@ const GENERATION_MODES = [
     shortLabel: '普通练习',
     cost: 1,
     questionCount: 5,
-    buttonText: '生成练习卷（消耗 1 点）',
+    buttonText: '一键生成练习卷',
     desc: '5 题，适合快速日常练习。'
   },
   {
@@ -14,7 +14,7 @@ const GENERATION_MODES = [
     shortLabel: '加长练习',
     cost: 2,
     questionCount: 10,
-    buttonText: '生成练习卷（消耗 2 点）',
+    buttonText: '一键生成练习卷',
     desc: '10 题，适合一组完整训练。'
   },
   {
@@ -23,16 +23,16 @@ const GENERATION_MODES = [
     shortLabel: '错题同类题',
     cost: 2,
     questionCount: 10,
-    buttonText: '生成同类题（消耗 2 点）',
+    buttonText: '一键生成同类题',
     desc: '围绕易错点生成同类新题。'
   },
   {
     id: 'upload_material',
-    label: '上传资料生成',
+    label: '上传资料',
     shortLabel: '上传资料',
     cost: 3,
     questionCount: 10,
-    buttonText: '根据资料生成（消耗 3 点）',
+    buttonText: '根据资料生成',
     desc: '根据上传资料生成配套练习。'
   },
   {
@@ -41,15 +41,10 @@ const GENERATION_MODES = [
     shortLabel: '整卷仿真',
     cost: 10,
     questionCount: 10,
-    buttonText: '生成同结构练习卷（消耗 10 点）',
+    buttonText: '生成同结构练习卷',
     desc: '分析原卷结构、题型、知识点和难度，生成新题。'
   }
 ]
-
-function getGenerationMode(mode) {
-  const normalized = normalizeGenerationMode(mode)
-  return GENERATION_MODES.find(item => item.id === normalized) || GENERATION_MODES[0]
-}
 
 function normalizeGenerationMode(mode = '') {
   const value = String(mode || '').trim()
@@ -57,6 +52,11 @@ function normalizeGenerationMode(mode = '') {
   if (value === 'exam_simulation' || value === 'paper' || value === 'simulation' || value === 'exam') return 'full_paper_simulation'
   if (GENERATION_MODES.some(item => item.id === value)) return value
   return 'normal'
+}
+
+function getGenerationMode(mode) {
+  const normalized = normalizeGenerationMode(mode)
+  return GENERATION_MODES.find(item => item.id === normalized) || GENERATION_MODES[0]
 }
 
 function normalizeWorksheetMode(mode = '') {
@@ -90,7 +90,7 @@ function parseTime(value) {
 
 function getPlanCode(member) {
   if (!member) return 'free'
-  return String(member.planCode || member.code || member.planId || 'free').replace(/[-_]monthly$/, '').replace(/-month$/, '')
+  return String(member.planCode || member.code || member.planId || 'free').replace(/[-_]monthly$/, '').replace(/[-_]yearly$/, '').replace(/-month$/, '')
 }
 
 function isPaidPlan(member, now = Date.now()) {
@@ -106,7 +106,7 @@ function canRemoveWatermark(member) {
 
 function canDownloadWord(member) {
   const planCode = getPlanCode(member)
-  return isPaidPlan(member) && (planCode === 'pro' || planCode === 'teacher')
+  return isPaidPlan(member) && (planCode === 'pro' || planCode === 'teacher' || planCode === 'standard')
 }
 
 function canUseTeacherFeatures(member) {

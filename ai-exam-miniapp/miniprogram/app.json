@@ -16,10 +16,10 @@
     "backgroundColor": "#ffffff"
   },
   "networkTimeout": {
-    "request": 300000,
-    "connectSocket": 300000,
-    "uploadFile": 300000,
-    "downloadFile": 300000
+    "request": 600000,
+    "connectSocket": 600000,
+    "uploadFile": 600000,
+    "downloadFile": 600000
   },
   "usingComponents": {
     "nav-bar": "/components/nav-bar/nav-bar",
