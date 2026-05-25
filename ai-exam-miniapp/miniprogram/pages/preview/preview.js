@@ -1,4 +1,4 @@
-const { groupBySection, sampleWorksheet } = require('../../utils/worksheet')
+const { groupBySection } = require('../../utils/worksheet')
 const storage = require('../../utils/storage')
 const api = require('../../services/api')
 const billing = require('../../utils/billing')
@@ -9,7 +9,7 @@ const share = require('../../utils/share')
 const SHARE_STATUS_CLEAR_MS = 2600
 
 function buildViewModel(worksheet) {
-  const source = worksheet || sampleWorksheet('', { mode: 'normal', questionCount: 9 })
+  const source = worksheet || { title: '暂无练习卷', grade: '', subject: '', mode: 'practice', questions: [] }
   const questions = (source.questions || []).map(enrichQuestionMath)
   const isExamSimulation = source.mode === 'exam_simulation'
   return {
@@ -52,7 +52,7 @@ Page({
   onLoad() {
     share.enableShareMenu()
     const payload = getApp().globalData.lastWorksheet || {}
-    const worksheet = payload.worksheet || sampleWorksheet('', { mode: 'normal', questionCount: 9 })
+    const worksheet = payload.worksheet || null
     const member = storage.getMember()
     this.setData({
       ...buildViewModel(worksheet),
@@ -73,12 +73,20 @@ Page({
       })).catch(() => {})
     }
   },
-  onShow() {
+  async onShow() {
     if (!this.shareRewardPending) return
     this.shareRewardPending = false
-    const result = storage.claimDailyTimelineShareReward()
-    setTemporaryShareStatus(this, result.message)
-    modal.showTip(result.success ? '+1 点已到账' : '今日已奖励')
+    try {
+      const result = storage.getToken()
+        ? await api.claimDailyShareReward('timeline')
+        : storage.claimDailyTimelineShareReward()
+      const granted = result.claimed === true || Number(result.pointsAdded || 0) > 0
+      setTemporaryShareStatus(this, result.message)
+      modal.showTip(granted ? '+1 点已到账' : '今日已奖励')
+    } catch (e) {
+      setTemporaryShareStatus(this, e.message || '分享奖励同步失败')
+      modal.showError(e.message || '分享奖励同步失败', { title: '奖励同步失败' })
+    }
   },
   onShareAppMessage() {
     return share.appShare(storage.getInviteCode())

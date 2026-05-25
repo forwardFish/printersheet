@@ -1,5 +1,5 @@
 import { v4 as uuid } from 'uuid'
-import { POINT_PACKS, PRICING_PLANS } from '../lib/plans.js'
+import { POINT_PACKS, PRICING_PLANS, getPlanRank } from '../lib/plans.js'
 
 const PRODUCTS = [...PRICING_PLANS, ...POINT_PACKS]
 
@@ -7,31 +7,75 @@ function amountCents(price) {
   return Math.round(Number(price || 0) * 100)
 }
 
+function formatAmount(cents) {
+  return (Number(cents || 0) / 100).toFixed(2).replace(/\.00$/, '')
+}
+
 function addDays(date, days) {
   return new Date(date.getTime() + days * 24 * 60 * 60 * 1000)
 }
 
+function httpError(message, statusCode = 400) {
+  const error = new Error(message)
+  error.statusCode = statusCode
+  return error
+}
+
 export class OrderService {
-  constructor({ db, authService }) {
+  constructor({ db, authService, env = {} }) {
     this.db = db
     this.authService = authService
+    this.env = env
+  }
+
+  productAmountCents(product) {
+    const originalAmountCents = amountCents(product.price)
+    if (this.env.paymentTestMode && originalAmountCents > 0) {
+      return Math.max(1, Number(this.env.wechatPayTestAmountCents || 1))
+    }
+    return originalAmountCents
+  }
+
+  productView(product) {
+    const originalAmountCents = amountCents(product.price)
+    const effectiveAmountCents = this.productAmountCents(product)
+    return {
+      ...product,
+      productCode: product.id,
+      originalPrice: product.price,
+      originalAmountCents,
+      price: formatAmount(effectiveAmountCents),
+      amountCents: effectiveAmountCents,
+      paymentTestMode: !!(this.env.paymentTestMode && originalAmountCents > 0)
+    }
   }
 
   listProducts() {
-    return PRODUCTS.map(product => ({
-      ...product,
-      productCode: product.id,
-      amountCents: amountCents(product.price)
-    }))
+    return PRODUCTS.map(product => this.productView(product))
   }
 
-  createOrder({ userId, productCode }) {
+  async createOrder({ userId, productCode }) {
     const product = PRODUCTS.find(item => item.id === productCode)
     if (!product) {
-      const error = new Error('product not found')
-      error.statusCode = 404
-      throw error
+      throw httpError('product not found', 404)
     }
+    if (product.productType === 'plan') {
+      const active = (await this.db.listActiveMemberships(userId))
+        .sort((a, b) => {
+          const rankDiff = getPlanRank(b.planCode) - getPlanRank(a.planCode)
+          if (rankDiff) return rankDiff
+          return String(b.expiresAt || '').localeCompare(String(a.expiresAt || ''))
+        })[0]
+      const activeRank = getPlanRank(active?.planCode)
+      const targetRank = getPlanRank(product.planCode)
+      if (activeRank >= targetRank && activeRank > 0) {
+        throw httpError(activeRank === targetRank
+          ? '当前套餐等级已开通，请选择更高套餐或购买能量包。'
+          : '已开通更高套餐，请购买能量包或等待套餐到期后再购买。', 409)
+      }
+    }
+    const originalAmountCents = amountCents(product.price)
+    const effectiveAmountCents = this.productAmountCents(product)
     return this.db.create('orders', {
       id: uuid(),
       orderNo: `ord_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -41,24 +85,43 @@ export class OrderService {
       productName: product.name,
       planCode: product.planCode || '',
       points: Number(product.points || 0),
-      amountCents: amountCents(product.price),
-      price: product.price,
+      originalAmountCents,
+      originalPrice: product.price,
+      amountCents: effectiveAmountCents,
+      price: formatAmount(effectiveAmountCents),
+      paymentTestMode: !!(this.env.paymentTestMode && originalAmountCents > 0),
       status: 'pending',
+      prepayId: '',
       paidAt: null,
       fulfilledAt: null
     })
   }
 
-  async markPaid(orderNo, { channel = 'mock' } = {}) {
+  async findUserOrder({ userId, orderNo }) {
+    const order = await this.db.findOrderByOrderNo(orderNo)
+    if (!order || order.userId !== userId) return null
+    return order
+  }
+
+  async attachPrepay(orderNo, { prepayId }) {
     const existing = await this.db.findOrderByOrderNo(orderNo)
-    if (!existing) {
-      const error = new Error('order not found')
-      error.statusCode = 404
-      throw error
-    }
+    if (!existing) throw httpError('order not found', 404)
+    return this.db.replace('orders', existing.id, { ...existing, prepayId })
+  }
+
+  async markPaid(orderNo, { channel = 'mock', transactionId = '', paidAt = '', notifyPayload = null } = {}) {
+    const existing = await this.db.findOrderByOrderNo(orderNo)
+    if (!existing) throw httpError('order not found', 404)
     let order = existing
     if (order.status !== 'paid') {
-      order = await this.db.replace('orders', order.id, { ...order, status: 'paid', paymentChannel: channel, paidAt: new Date().toISOString() })
+      order = await this.db.replace('orders', order.id, {
+        ...order,
+        status: 'paid',
+        paymentChannel: channel,
+        transactionId,
+        paidAt: paidAt || new Date().toISOString(),
+        notifyPayload
+      })
     }
     if (order.fulfilledAt) return { order, fulfilled: false }
     await this.fulfill(order)
@@ -79,10 +142,14 @@ export class OrderService {
       })
     }
     if (product.productType === 'plan') {
-      const existing = (await this.db.listActiveMemberships(order.userId))
-        .find(item => item.planCode === product.planCode)
-      const base = existing && new Date(existing.expiresAt).getTime() > Date.now()
-        ? new Date(existing.expiresAt)
+      const active = (await this.db.listActiveMemberships(order.userId))
+        .sort((a, b) => {
+          const rankDiff = getPlanRank(b.planCode) - getPlanRank(a.planCode)
+          if (rankDiff) return rankDiff
+          return String(b.expiresAt || '').localeCompare(String(a.expiresAt || ''))
+        })[0]
+      const base = active && active.planCode === product.planCode && new Date(active.expiresAt).getTime() > Date.now()
+        ? new Date(active.expiresAt)
         : new Date()
       await this.db.create('memberships', {
         id: uuid(),

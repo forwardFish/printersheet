@@ -1,12 +1,10 @@
 <view class="tabbar">
   <view class="tab-item {{active==='home' ? 'active' : ''}}" data-key="home" bindtap="go">
-    <view class="active-line"></view>
-    <view class="tab-icon home-icon"></view>
+    <image class="tab-icon" src="/assets/tab-home.png" mode="aspectFit"></image>
     <text>首页</text>
   </view>
   <view class="tab-item {{active==='my' ? 'active' : ''}}" data-key="my" bindtap="go">
-    <view class="active-line"></view>
-    <view class="tab-icon user-icon"></view>
+    <image class="tab-icon" src="/assets/tab-my.png" mode="aspectFit"></image>
     <text>我的</text>
   </view>
 </view>

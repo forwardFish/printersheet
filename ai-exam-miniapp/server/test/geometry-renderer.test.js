@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import PDFDocument from 'pdfkit'
-import { fallbackGeometrySpec, normalizeGeometryDiagramSpec, renderGeometryDiagram, validateGeometryDiagramSpec } from '../src/lib/geometryRenderer.js'
+import { fallbackGeometrySpec, normalizeGeometryDiagramSpec, renderGeometryDiagram, resolveSemanticDiagramSpec, validateGeometryDiagramSpec } from '../src/lib/geometryRenderer.js'
 import { classifyGeometryQuestion, shouldUseQuestionNumberFallback } from '../src/lib/geometryClassifier.js'
 
 test('geometry diagram specs validate required professional fields', () => {
@@ -275,5 +275,68 @@ test('DeepSeek right-triangle altitude spec is accepted and rendered', () => {
   const doc = new PDFDocument({ size: 'A4', margin: 40 })
   const result = renderGeometryDiagram(doc, spec, { x: 60, y: 60, width: 220, height: 120, scale: 24, allowFallback: false })
   assert.ok(result.height > 0)
+  doc.end()
+})
+
+test('semantic geometry diagramTypes resolve to deterministic template specs', () => {
+  const cases = [
+    {
+      diagramType: 'TRIANGLE_ANGLE_SUM',
+      params: { vertices: ['A', 'B', 'C'], angles: { A: '50\\circ', B: '60°', C: '?' } }
+    },
+    {
+      diagramType: 'ISOSCELES_TRIANGLE',
+      params: { topPoint: 'A', leftPoint: 'B', rightPoint: 'C', knownAngles: [{ point: 'B', value: '40°' }] }
+    },
+    {
+      diagramType: 'RIGHT_TRIANGLE',
+      params: { vertices: ['A', 'B', 'C'], rightAngleAt: 'C', sideLabels: [{ segment: ['A', 'C'], label: '6' }] }
+    },
+    {
+      diagramType: 'CONGRUENT_TRIANGLES',
+      params: { leftTriangle: ['A', 'B', 'C'], rightTriangle: ['D', 'E', 'F'] }
+    },
+    {
+      diagramType: 'PARALLEL_LINES_ANGLE',
+      params: { angles: [{ point: 'E', value: '\\angle 1' }, { point: 'F', value: '\\angle 2' }] }
+    }
+  ]
+
+  for (const spec of cases) {
+    const resolved = resolveSemanticDiagramSpec(spec)
+    assert.ok(resolved.type)
+    assert.ok(Object.keys(resolved.points).length >= 3)
+    assert.ok(resolved.segments.length >= 2)
+    assert.equal(validateGeometryDiagramSpec(spec).valid, true)
+
+    const normalized = normalizeGeometryDiagramSpec(spec, 0, { allowFallback: false })
+    assert.equal(normalized.source, 'ai')
+    assert.equal(normalized.spec.diagramType, spec.diagramType)
+    assert.ok(normalized.spec.diagramBox.width >= 300)
+    assert.ok(normalized.spec.labels.length >= 3)
+  }
+})
+
+test('semantic geometry diagrams render within independent boxes', () => {
+  const doc = new PDFDocument({ size: 'A4', margin: 40 })
+  const specs = [
+    { diagramType: 'TRIANGLE_ANGLE_SUM', params: { angles: { A: '50°', B: '60°', C: '?' } } },
+    { diagramType: 'ISOSCELES_TRIANGLE', params: { knownAngles: [{ point: 'B', value: '40°' }] } },
+    { diagramType: 'RIGHT_TRIANGLE', params: { rightAngleAt: 'C' } },
+    { diagramType: 'CONGRUENT_TRIANGLES', params: {} },
+    { diagramType: 'PARALLEL_LINES_ANGLE', params: { angles: [{ point: 'E', value: '∠1' }] } }
+  ]
+
+  specs.forEach((spec, index) => {
+    const result = renderGeometryDiagram(doc, spec, {
+      x: 60,
+      y: 50 + index * 130,
+      width: 320,
+      height: 110,
+      allowFallback: false
+    })
+    assert.ok(result.height > 0)
+    assert.equal(result.source, 'ai')
+  })
   doc.end()
 })

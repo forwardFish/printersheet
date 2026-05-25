@@ -2,7 +2,7 @@
   <nav-bar title="确认订单" back="{{true}}"></nav-bar>
   <view class="container">
     <view class="product-card">
-      <image src="/assets/crown.png" class="product-icon" mode="aspectFit"></image>
+      <image src="/assets/crown-square.png" class="product-icon" mode="aspectFill"></image>
       <view class="product-info">
         <view class="product-title">{{plan.memberName || '标准版 年度会员'}}</view>
         <view class="product-sub">有效期：{{validityText || '12个月'}}</view>

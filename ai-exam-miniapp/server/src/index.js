@@ -37,6 +37,25 @@ function uploadExtension(file) {
   return path.extname(file.originalname || '').toLowerCase()
 }
 
+function normalizeUploadExtension(value = '') {
+  const text = String(value || '').trim().toLowerCase()
+  if (!text) return ''
+  return `.${text.replace(/^\./, '')}`
+}
+
+function uploadExtensionFromMeta(req, file) {
+  const declared = normalizeUploadExtension(req?.body?.fileExtension)
+  if (declared) return declared
+  const fileType = String(req?.body?.fileType || '').toLowerCase()
+  const mime = String(file?.mimetype || '').toLowerCase()
+  if (fileType.includes('pdf') || mime.includes('pdf')) return '.pdf'
+  if (fileType.includes('word') || mime.includes('wordprocessingml')) return '.docx'
+  if (fileType.includes('图片') || fileType.includes('image') || mime.includes('png')) return '.png'
+  if (mime.includes('jpeg') || mime.includes('jpg')) return '.jpg'
+  if (mime.includes('webp')) return '.webp'
+  return ''
+}
+
 function parserStatusFor(file, fileText, meta = {}) {
   if (!file) return null
   const ext = uploadExtension(file) || (meta.fileExtension ? `.${String(meta.fileExtension).replace(/^\./, '').toLowerCase()}` : '')
@@ -50,8 +69,8 @@ function parserStatusFor(file, fileText, meta = {}) {
 const upload = multer({
   dest: uploadsDir,
   limits: { fileSize: 10 * 1024 * 1024 },
-  fileFilter: (_, file, cb) => {
-    const ext = uploadExtension(file)
+  fileFilter: (req, file, cb) => {
+    const ext = uploadExtension(file) || uploadExtensionFromMeta(req, file)
     if (!ext || SUPPORTED_UPLOAD_EXTENSIONS.has(ext)) cb(null, true)
     else cb(new Error('仅支持 PDF、Word、PNG、JPG、JPEG、WEBP 文件。'))
   }
@@ -341,7 +360,12 @@ function handleMockPurchase(req, res) {
 export function createApp() {
   const app = express()
   app.use(cors())
-  app.use(express.json({ limit: '2mb' }))
+  app.use(express.json({
+    limit: '2mb',
+    verify: (req, _res, buf) => {
+      req.rawBody = buf.toString('utf8')
+    }
+  }))
   app.use('/files', express.static(filesDir, { maxAge: '30m' }))
   const mainChain = createMainChain({ env: loadEnv({ root }), filesDir, uploadsDir })
   registerMainChainRoutes({
@@ -376,11 +400,11 @@ export function cleanExpiredFiles({ maxAgeMs = 30 * 60 * 1000 } = {}) {
 if (process.env.NODE_ENV !== 'test') {
   const app = createApp()
   setInterval(() => cleanExpiredFiles(), 10 * 60 * 1000)
-  app.listen(PORT, () => {
+  app.listen(PORT, '0.0.0.0', () => {
     console.log(`AI出题小助手后端已启动：${PUBLIC_BASE_URL}`)
     const aiConfig = aiRuntimeConfig()
     if (aiConfig.mockMode) {
-      console.log('AI_MOCK_MODE 已开启：当前强制使用内置模拟出题数据。')
+      console.log('AI_MOCK_MODE 已禁用：当前配置会阻止生成，不能返回 demo/mock 题。')
     } else if (!aiConfig.apiKey) {
       console.log('未配置 DEEPSEEK_API_KEY 或 AI_API_KEY：真实生成接口会报错，不再静默返回 demo 题。')
     } else {

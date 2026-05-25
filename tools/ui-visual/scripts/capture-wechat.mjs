@@ -3,10 +3,14 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import automator from 'miniprogram-automator'
-import { defaultRound, pageTargets, pendingTargets, repoRoot } from './visual-targets.mjs'
+import { defaultRound, getCandidate, getCandidateId, getPageTargets, pendingTargets, repoRoot } from './visual-targets.mjs'
 
 const root = fileURLToPath(repoRoot)
-const projectPath = path.join(root, 'project.config.json')
+const candidateId = getCandidateId()
+const candidate = getCandidate(candidateId)
+const pageTargets = getPageTargets(candidateId)
+const projectRoot = path.join(root, candidate.projectRoot)
+const projectPath = path.join(root, candidate.projectConfig)
 const outputRoot = path.join(root, 'docs', 'UI', '小程序', '复刻对比', process.env.UI_ROUND || defaultRound)
 const captureDir = path.join(outputRoot, 'captures')
 const reportPath = path.join(outputRoot, 'capture-summary.json')
@@ -52,7 +56,7 @@ function runCli(cliPath, args) {
   const escapedArgs = args.map(arg => `'${String(arg).replaceAll("'", "''")}'`).join(' ')
   const command = `& '${cliPath.replaceAll("'", "''")}' ${escapedArgs}`
   return spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', command], {
-    cwd: root,
+    cwd: projectRoot,
     encoding: 'utf8',
     timeout: 90000,
     windowsHide: true
@@ -79,9 +83,17 @@ async function captureTarget(miniProgram, target) {
   if (target.data && Object.keys(target.data).length) {
     await withTimeout(page.setData(target.data), 10000, `${target.id} setData`)
   }
+  if (Number.isFinite(Number(target.scrollTop))) {
+    await withTimeout(miniProgram.pageScrollTo(Number(target.scrollTop)), 10000, `${target.id} pageScrollTo`)
+  }
   await wait(target.settleMs || 800)
   const actualPath = path.join(captureDir, `${target.id}.png`)
-  await withTimeout(page.screenshot({ path: actualPath }), 30000, `${target.id} screenshot`)
+  try {
+    await withTimeout(miniProgram.screenshot({ path: actualPath }), 20000, `${target.id} app screenshot`)
+  } catch (error) {
+    if (typeof page.screenshot !== 'function') throw error
+    await withTimeout(page.screenshot({ path: actualPath }), 20000, `${target.id} page screenshot fallback`)
+  }
   return {
     id: target.id,
     page: target.page,
@@ -96,6 +108,11 @@ async function main() {
   const cliPath = await findCli()
   const summary = {
     status: 'BLOCKED_BY_ENVIRONMENT',
+    candidate: {
+      id: candidate.id,
+      label: candidate.label,
+      projectRoot: path.relative(root, projectRoot).replaceAll(path.sep, '/') || '.'
+    },
     projectPath,
     cliPath,
     port,
@@ -118,7 +135,7 @@ async function main() {
     summary.quitExitCode = quit.status
     summary.quitStdout = quit.stdout || ''
     summary.quitStderr = quit.stderr || ''
-    const auto = runCli(cliPath, ['auto', '--project', root, '--auto-port', String(port), '--trust-project'])
+    const auto = runCli(cliPath, ['auto', '--project', projectRoot, '--auto-port', String(port), '--trust-project'])
     summary.autoExitCode = auto.status
     summary.autoStdout = auto.stdout || ''
     summary.autoStderr = auto.stderr || ''

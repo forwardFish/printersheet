@@ -3,7 +3,30 @@ page {
   background: #f8f9ff;
   color: #171923;
   font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", Helvetica, Arial, sans-serif;
-  font-size: 28rpx;
+  --font-micro: 18rpx;
+  --font-mini: 20rpx;
+  --font-xs: 22rpx;
+  --font-sm: 24rpx;
+  --font-md: 25rpx;
+  --font-body: 26rpx;
+  --font-lg: 28rpx;
+  --font-title: 30rpx;
+  --font-section: 32rpx;
+  --font-page-title: 34rpx;
+  --font-hero: 36rpx;
+  --font-display: 40rpx;
+  --font-number: 44rpx;
+  --font-price: 52rpx;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --weight-heavy: 800;
+  --line-tight: 1.15;
+  --line-normal: 1.42;
+  --line-relaxed: 1.62;
+  font-size: var(--font-body);
+  line-height: var(--line-normal);
   box-sizing: border-box;
 }
 
@@ -26,7 +49,7 @@ button::after {
 
 .safe-page {
   min-height: 100vh;
-  padding-bottom: 170rpx;
+  padding-bottom: 158rpx;
   background: radial-gradient(circle at 18% 6%, #fbfbff 0, #f7f8ff 26%, #ffffff 68%);
 }
 
@@ -47,8 +70,8 @@ button::after {
   border-radius: 18rpx;
   background: linear-gradient(135deg, #6b55ff 0%, #4d45ef 100%);
   color: #fff;
-  font-size: 32rpx;
-  font-weight: 800;
+  font-size: var(--font-title);
+  font-weight: var(--weight-bold);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -59,8 +82,100 @@ button::after {
   opacity: .55;
 }
 
+.action-stack {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 24rpx;
+}
+
+.app-btn {
+  width: 100%;
+  min-height: 104rpx;
+  margin: 0;
+  padding: 0 34rpx;
+  border-radius: 24rpx;
+  font-size: var(--font-title);
+  line-height: 104rpx;
+  font-weight: var(--weight-bold);
+  letter-spacing: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.app-btn::after {
+  border: 0;
+}
+
+.app-btn-primary {
+  color: #fff;
+  background: linear-gradient(135deg, #6b55ff 0%, #5147ef 100%);
+  box-shadow:
+    0 18rpx 34rpx rgba(82, 68, 238, .20),
+    inset 0 1rpx 0 rgba(255, 255, 255, .24);
+}
+
+.app-btn-success {
+  color: #fff;
+  background: linear-gradient(135deg, #5edb76 0%, #34c063 100%);
+  box-shadow:
+    0 18rpx 34rpx rgba(45, 184, 91, .20),
+    inset 0 1rpx 0 rgba(255, 255, 255, .24);
+}
+
+.app-btn-secondary {
+  color: #424b5f;
+  background: rgba(255, 255, 255, .96);
+  border: 1rpx solid #dfe5ef;
+  box-shadow: 0 12rpx 28rpx rgba(50, 60, 92, .07);
+}
+
+.app-btn-icon {
+  width: 44rpx;
+  height: 44rpx;
+  margin-right: 14rpx;
+  display: block;
+  flex: 0 0 auto;
+}
+
 .subtle-text {
   color: #7a8398;
+}
+
+.text-micro { font-size: var(--font-micro); }
+.text-mini { font-size: var(--font-mini); }
+.text-xs { font-size: var(--font-xs); }
+.text-sm { font-size: var(--font-sm); }
+.text-md { font-size: var(--font-md); }
+.text-body { font-size: var(--font-body); }
+.text-lg { font-size: var(--font-lg); }
+.text-title { font-size: var(--font-title); }
+.text-section { font-size: var(--font-section); }
+.text-page-title { font-size: var(--font-page-title); }
+.text-hero { font-size: var(--font-hero); }
+.text-display { font-size: var(--font-display); }
+.text-number { font-size: var(--font-number); }
+
+.text-caption {
+  font-size: var(--font-xs);
+  line-height: var(--line-normal);
+  color: #7a8398;
+}
+
+.text-copy {
+  font-size: var(--font-body);
+  line-height: var(--line-relaxed);
+}
+
+.text-heading {
+  font-size: var(--font-section);
+  line-height: var(--line-tight);
+  font-weight: var(--weight-bold);
+  color: #171923;
 }
 
 .purple {
@@ -86,4 +201,22 @@ button::after {
 .card {
   border-color: #e7eaf3;
   box-shadow: 0 18rpx 56rpx rgba(47, 58, 100, .065);
+}
+
+.safe-page {
+  background:
+    radial-gradient(circle at 28% 10%, rgba(102, 84, 244, .07), transparent 32%),
+    linear-gradient(180deg, #fbfcff 0%, #f8f9ff 50%, #ffffff 100%);
+}
+
+.container {
+  padding-left: 36rpx;
+  padding-right: 36rpx;
+}
+
+.card {
+  border-radius: 22rpx;
+  background: rgba(255, 255, 255, .98);
+  border: 1rpx solid #e4e8f4;
+  box-shadow: 0 18rpx 48rpx rgba(42, 52, 92, .07);
 }

@@ -16,7 +16,11 @@ export class CloudBaseFileAdapter {
 
   async getApp() {
     if (!this.appPromise) {
-      this.appPromise = import('@cloudbase/node-sdk').then(({ default: tcb }) => tcb.init({ env: this.envId }))
+      this.appPromise = import('@cloudbase/node-sdk').then(({ default: tcb }) => tcb.init({
+        env: this.envId,
+        secretId: process.env.TENCENTCLOUD_SECRETID,
+        secretKey: process.env.TENCENTCLOUD_SECRETKEY
+      }))
     }
     return this.appPromise
   }

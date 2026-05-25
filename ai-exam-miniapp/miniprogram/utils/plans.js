@@ -108,4 +108,21 @@ function getDefaultPlan() {
   return getPlanById('standard_yearly') || getPlanById('pro_monthly')
 }
 
-module.exports = { PLANS, POINT_PACKS, getPaidPlans, getPointPacks, getPlanById, getDefaultPlan }
+const PLAN_RANK = {
+  free: 0,
+  starter: 1,
+  pro: 2,
+  standard: 2,
+  teacher: 3
+}
+
+function getPlanRank(planCode = 'free') {
+  return PLAN_RANK[String(planCode || 'free')] || 0
+}
+
+function getPlanDisplayName(planCode = 'free') {
+  const plan = PLANS.find(item => item.planCode === planCode)
+  return plan ? plan.memberName : '免费体验'
+}
+
+module.exports = { PLANS, POINT_PACKS, getPaidPlans, getPointPacks, getPlanById, getDefaultPlan, getPlanRank, getPlanDisplayName }

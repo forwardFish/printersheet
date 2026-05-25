@@ -1,12 +1,29 @@
 <view class="records-page">
   <nav-bar title="生成记录" back="{{true}}"></nav-bar>
-  <view class="container">
-    <view wx:if="{{records.length===0}}" class="empty card">暂无生成记录</view>
+  <view class="container records-container">
+    <view class="page-head">
+      <view>
+        <view class="page-title">全部生成记录</view>
+        <view class="page-subtitle">共 {{records.length}} 份练习卷</view>
+      </view>
+    </view>
+
+    <view wx:if="{{records.length===0}}" class="empty card">
+      <view class="empty-title">暂无生成记录</view>
+      <view class="empty-desc">生成后的练习卷会保存在这里。</view>
+    </view>
+
     <view wx:for="{{records}}" wx:key="id" class="record card" data-id="{{item.id}}" bindtap="openRecord">
-      <view class="record-title">{{item.title}}</view>
-      <view class="record-desc">{{item.createdAt}} · {{item.modeLabel}} · {{item.questionCount}} 题 · 消耗 {{item.pointsUsed}} 点</view>
-      <view wx:if="{{item.sourceFileName}}" class="record-desc">来源：{{item.sourceFileName}}<text wx:if="{{item.sourceFileType}}"> · {{item.sourceFileType}}</text></view>
-      <view class="record-action">再次查看</view>
+      <view class="record-top">
+        <view class="record-title">{{item.title}}</view>
+        <view class="record-badge">{{item.modeLabel}}</view>
+      </view>
+      <view class="record-desc">{{item.metaText}}</view>
+      <view wx:if="{{item.sourceText}}" class="record-desc source">{{item.sourceText}}</view>
+      <view class="record-foot">
+        <view class="record-hint">{{item.canOpen ? '可继续预览与下载' : '缺少本地预览数据'}}</view>
+        <view class="record-action">再次查看</view>
+      </view>
     </view>
   </view>
 </view>

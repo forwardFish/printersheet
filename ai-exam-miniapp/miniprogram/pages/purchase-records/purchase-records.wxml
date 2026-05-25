@@ -1,12 +1,33 @@
 <view class="records-page">
   <nav-bar title="购买记录" back="{{true}}"></nav-bar>
-  <view class="container">
-    <view wx:if="{{records.length===0}}" class="empty card">暂无购买记录</view>
+  <view class="container records-container">
+    <view class="page-head">
+      <view>
+        <view class="page-title">点数与套餐</view>
+        <view class="page-subtitle">共 {{records.length}} 条购买记录</view>
+      </view>
+    </view>
+
+    <view wx:if="{{records.length===0}}" class="empty card">
+      <view class="empty-title">暂无购买记录</view>
+      <view class="empty-desc">购买套餐或点数包后会显示在这里。</view>
+    </view>
+
     <view wx:for="{{records}}" wx:key="id" class="record card">
-      <view class="record-title">{{item.title}}</view>
-      <view class="record-desc">{{item.paidAt}} · ¥{{item.price}} · 增加 {{item.points}} 点</view>
-      <view class="record-desc">套餐：{{item.planName}} · 状态：{{item.statusLabel}}</view>
-      <view wx:if="{{item.expireAt}}" class="record-desc">有效期至：{{item.expireAt}}</view>
+      <view class="record-top">
+        <view>
+          <view class="record-title">{{item.title}}</view>
+          <view class="record-desc">{{item.timeText}}</view>
+        </view>
+        <view class="record-status">{{item.statusText}}</view>
+      </view>
+      <view class="purchase-row">
+        <view class="purchase-price">{{item.priceText}}</view>
+        <view class="purchase-points">{{item.pointsText}}</view>
+      </view>
+      <view class="record-desc">套餐：{{item.planName}}</view>
+      <view wx:if="{{item.expireText}}" class="record-desc">{{item.expireText}}</view>
+      <view wx:if="{{item.orderNoText}}" class="record-order">{{item.orderNoText}}</view>
     </view>
   </view>
 </view>

@@ -12,8 +12,8 @@
   align-items: center;
   justify-content: space-between;
   color: #171923;
-  font-size: 30rpx;
-  font-weight: 800;
+  font-size: var(--font-lg);
+  font-weight: var(--weight-bold);
 }
 .line {
   height: 1rpx;
@@ -29,13 +29,13 @@
 }
 .about-title {
   color: #171923;
-  font-size: 32rpx;
-  font-weight: 900;
+  font-size: var(--font-title);
+  font-weight: var(--weight-bold);
   margin-top: 18rpx;
 }
 .about-desc {
   color: #7b8499;
-  font-size: 25rpx;
+  font-size: var(--font-sm);
   line-height: 38rpx;
   margin-top: 12rpx;
 }

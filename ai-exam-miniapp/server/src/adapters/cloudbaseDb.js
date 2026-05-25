@@ -4,6 +4,7 @@ const COLLECTIONS = [
   'point_ledger',
   'orders',
   'memberships',
+  'share_reward_logs',
   'generation_jobs',
   'worksheet_records',
   'file_objects'
@@ -23,6 +24,16 @@ function normalizeDoc(doc) {
   return clone(rest)
 }
 
+function isPlainObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function needsWholeDocumentSet(existing, patch) {
+  return Object.entries(patch).some(([key, value]) =>
+    isPlainObject(value) && (existing[key] === null || (existing[key] !== undefined && !isPlainObject(existing[key])))
+  )
+}
+
 export class CloudBaseDbAdapter {
   constructor({ envId }) {
     this.envId = envId
@@ -32,7 +43,11 @@ export class CloudBaseDbAdapter {
 
   async getApp() {
     if (!this.appPromise) {
-      this.appPromise = import('@cloudbase/node-sdk').then(({ default: tcb }) => tcb.init({ env: this.envId }))
+      this.appPromise = import('@cloudbase/node-sdk').then(({ default: tcb }) => tcb.init({
+        env: this.envId,
+        secretId: process.env.TENCENTCLOUD_SECRETID,
+        secretKey: process.env.TENCENTCLOUD_SECRETKEY
+      }))
     }
     return this.appPromise
   }
@@ -62,6 +77,11 @@ export class CloudBaseDbAdapter {
     if (!existing) return null
     const next = { ...patch, updatedAt: nowIso() }
     const collection = await this.getCollection(name)
+    if (needsWholeDocumentSet(existing, next)) {
+      const item = { ...existing, ...clone(next) }
+      await collection.doc(id).set(item)
+      return clone(item)
+    }
     await collection.doc(id).update(next)
     return { ...existing, ...clone(next) }
   }
@@ -117,6 +137,23 @@ export class CloudBaseDbAdapter {
 
   findOrderByOrderNo(orderNo) {
     return this.findOne('orders', { orderNo })
+  }
+
+  findShareRewardLog({ userId, rewardDate, channel }) {
+    return this.findOne('share_reward_logs', { userId, rewardDate, channel })
+  }
+
+  async createShareRewardLogIfAbsent(record) {
+    const existing = await this.findShareRewardLog(record)
+    if (existing) return { created: false, record: existing }
+    try {
+      const item = await this.create('share_reward_logs', record)
+      return { created: true, record: item }
+    } catch (error) {
+      const raced = await this.findShareRewardLog(record)
+      if (raced) return { created: false, record: raced }
+      throw error
+    }
   }
 
   findWorksheetByRequestId(userId, requestId) {

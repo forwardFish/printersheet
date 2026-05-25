@@ -1,3 +1,5 @@
+import { getPlanRank } from '../lib/plans.js'
+
 export class EntitlementService {
   constructor({ db }) {
     this.db = db
@@ -5,7 +7,11 @@ export class EntitlementService {
 
   async getActiveMembership(userId) {
     const memberships = await this.db.listActiveMemberships(userId)
-    return memberships[0] || null
+    return memberships.sort((a, b) => {
+      const rankDiff = getPlanRank(b.planCode) - getPlanRank(a.planCode)
+      if (rankDiff) return rankDiff
+      return String(b.expiresAt || '').localeCompare(String(a.expiresAt || ''))
+    })[0] || null
   }
 
   async getEntitlements(userId) {

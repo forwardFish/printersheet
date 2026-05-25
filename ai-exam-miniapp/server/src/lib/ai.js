@@ -1,4 +1,3 @@
-import { createMockWorksheet } from './mockWorksheet.js'
 import { assertValidWorksheet, normalizeWorksheet, worksheetDefaults } from './worksheet.js'
 import { resolveAiProvider } from './aiProviders.js'
 import { extractExamBlueprintFromText, isFullPaperSimulation, validateExamBlueprint } from './examBlueprint.js'
@@ -36,6 +35,7 @@ export function aiRuntimeConfig(env = process.env) {
     fallbackToMock: envFlag(env.AI_FALLBACK_TO_MOCK),
     requestTimeoutMs: envNumber(env.AI_REQUEST_TIMEOUT_MS, 10 * 60 * 1000),
     maxTokens: envNumber(env.AI_MAX_TOKENS, 24000),
+    worksheetModel: String(env.AI_WORKSHEET_MODEL || env.AI_FAST_MODEL || '').trim(),
     thinkingMode: ['enabled', 'disabled'].includes(thinkingMode) ? thinkingMode : 'disabled'
   }
 }
@@ -56,7 +56,7 @@ export function extractJson(text) {
 
 function expectedQuestionCount(questionCount) {
   const count = Number(questionCount || 0)
-  return Number.isFinite(count) && count > 0 ? count : 10
+  return Number.isFinite(count) ? count : 10
 }
 
 function sourceBlueprintItemForQuestion(sourceBlueprint = null, number = 0) {
@@ -97,10 +97,16 @@ function applyGeometryPolicyToQuestion(question, sourceBlueprint = null) {
   }
 
   const allowFallback = shouldUseQuestionNumberFallback(number, classification)
-  const normalizedDiagram = normalizeGeometryDiagramSpec(question.diagramSpec, number, {
+  let normalizedDiagram = normalizeGeometryDiagramSpec(question.diagramSpec, number, {
     allowFallback,
     lockTemplates: allowFallback
   })
+  if (!normalizedDiagram.spec && shouldUseAnalyticCurveFallback(question, classification)) {
+    normalizedDiagram = normalizeGeometryDiagramSpec(fallbackAnalyticCurveSpec(question), number, {
+      allowFallback: false,
+      lockTemplates: false
+    })
+  }
   if (!normalizedDiagram.spec) {
     throw new Error(`Question ${number || '?'} requires diagramSpec: ${classification.reason}`)
   }
@@ -108,6 +114,41 @@ function applyGeometryPolicyToQuestion(question, sourceBlueprint = null) {
     ...next,
     diagramSpec: normalizedDiagram.spec,
     diagramSpecSource: normalizedDiagram.source
+  }
+}
+
+function shouldUseAnalyticCurveFallback(question = {}, classification = {}) {
+  if (['analytic_geometry', 'function_graph'].includes(classification.geometryDomain)) return true
+  const text = [
+    question.question,
+    question.questionLatex,
+    question.skill,
+    question.answer,
+    question.answerLatex,
+    question.explanation,
+    ...(Array.isArray(question.explanationSteps) ? question.explanationSteps : [])
+  ].join(' ')
+  return /二次函数|抛物线|y\s*=/i.test(text)
+}
+
+function fallbackAnalyticCurveSpec(question = {}) {
+  const text = [
+    question.question,
+    question.questionLatex,
+    question.answer,
+    question.answerLatex,
+    question.explanation,
+    ...(Array.isArray(question.explanationSteps) ? question.explanationSteps : [])
+  ].join(' ')
+  const equation = String(text.match(/y\s*=\s*[^，。；;,)\]]+/i)?.[0] || '').trim()
+  const curveKind = /双曲线|hyperbola/i.test(text)
+    ? 'hyperbola'
+    : (/椭圆|ellipse/i.test(text) ? 'ellipse' : 'parabola')
+  return {
+    type: 'analytic_curve',
+    curveKind,
+    equation: equation || (curveKind === 'parabola' ? 'y=x^2' : ''),
+    axes: { xLabel: 'x', yLabel: 'y' }
   }
 }
 
@@ -133,17 +174,23 @@ export function assertAiWorksheetPayloadSchema(payload, { questionCount = 0, exp
     throw new Error('AI JSON 缺少 questions 数组')
   }
   const expected = Number(expectedCount || sourceBlueprint?.totalQuestions || expectedQuestionCount(questionCount))
-  if (worksheet.questions.length !== expected) {
+  if (expected > 0 && worksheet.questions.length !== expected) {
     throw new Error(`AI JSON questions 数量必须等于 ${expected}`)
   }
   worksheet.questions.forEach((question, index) => {
     if (!question || typeof question !== 'object' || Array.isArray(question)) {
       throw new Error(`AI JSON 第 ${index + 1} 题必须是对象`)
     }
-    for (const field of ['question', 'answer', 'explanation']) {
+    for (const field of ['question', 'answer']) {
       if (!String(question[field] || '').trim()) {
         throw new Error(`AI JSON 第 ${index + 1} 题缺少 ${field}`)
       }
+    }
+    const explanationText = String(question.explanation || question.analysis || '').trim()
+    const explanationSteps = Array.isArray(question.explanationSteps) ? question.explanationSteps.filter(Boolean) : []
+    const proofSteps = Array.isArray(question.proofSteps) ? question.proofSteps.filter(Boolean) : []
+    if (!explanationText && !explanationSteps.length && !proofSteps.length) {
+      throw new Error(`AI JSON 第 ${index + 1} 题缺少 explanation`)
     }
     if ('options' in question && !Array.isArray(question.options)) {
       throw new Error(`AI JSON 第 ${index + 1} 题 options 必须是数组`)
@@ -175,6 +222,84 @@ export function assertWorksheetQuality(worksheet) {
       throw new Error(`AI 返回了 demo/示例题：${question.question}`)
     }
   }
+  return worksheet
+}
+
+const GRADE_ALIASES = [
+  ['小学一年级', ['小学一年级', '一年级']],
+  ['小学二年级', ['小学二年级', '二年级']],
+  ['小学三年级', ['小学三年级', '三年级']],
+  ['小学四年级', ['小学四年级', '四年级']],
+  ['小学五年级', ['小学五年级', '五年级']],
+  ['小学六年级', ['小学六年级', '六年级']],
+  ['初一', ['初一', '七年级']],
+  ['初二', ['初二', '八年级']],
+  ['初三', ['初三', '九年级']],
+  ['高一', ['高一', '高一', '高中一年级']],
+  ['高二', ['高二', '高中二年级']],
+  ['高三', ['高三', '高中三年级']]
+]
+
+const TOPIC_GUARDS = [
+  {
+    patterns: [/二次函数/, /quadratic/i],
+    allowed: [/二次函数/, /抛物线/, /顶点/, /对称轴/, /开口/, /y\s*=/i, /ax\^?2/i]
+  },
+  {
+    patterns: [/一元一次方程/, /linear equation/i],
+    allowed: [/一元一次方程/, /移项/, /一次方程/, /解方程/]
+  },
+  {
+    patterns: [/三角形/, /平行线/, /几何/],
+    allowed: [/三角形/, /平行线/, /角/, /全等/, /相似/, /几何/]
+  },
+  {
+    patterns: [/分式/],
+    allowed: [/分式/, /约分/, /通分/, /分母/]
+  },
+  {
+    patterns: [/根式/, /二次根式/],
+    allowed: [/根式/, /二次根式/, /平方根/, /化简/]
+  }
+]
+
+function requestedGradeAliases(prompt = '', grade = '') {
+  const text = `${prompt}\n${grade}`
+  const match = GRADE_ALIASES.find(([, aliases]) => aliases.some(alias => text.includes(alias)))
+  return match ? match[1] : []
+}
+
+function assertWorksheetMatchesRequest(worksheet, { prompt = '', grade = '', subject = '' } = {}) {
+  const combined = [
+    worksheet.title,
+    worksheet.grade,
+    worksheet.subject,
+    ...(worksheet.questions || []).flatMap(question => [
+      question.section,
+      question.type,
+      question.skill,
+      question.question,
+      question.answer,
+      question.explanation,
+      ...(question.options || [])
+    ])
+  ].join('\n')
+
+  const aliases = requestedGradeAliases(prompt, grade)
+  if (aliases.length && !aliases.some(alias => combined.includes(alias))) {
+    throw new Error(`AI 返回内容与指定年级不匹配：要求 ${aliases[0]}，实际为 ${worksheet.grade || worksheet.title || '未标明'}`)
+  }
+
+  const requestedSubject = String(subject || '').trim()
+  if (requestedSubject && !combined.includes(requestedSubject)) {
+    throw new Error(`AI 返回内容与指定学科不匹配：要求 ${requestedSubject}`)
+  }
+
+  const topicGuard = TOPIC_GUARDS.find(guard => guard.patterns.some(pattern => pattern.test(prompt)))
+  if (topicGuard && !topicGuard.allowed.some(pattern => pattern.test(combined))) {
+    throw new Error('AI 返回内容与用户指定知识点不匹配')
+  }
+
   return worksheet
 }
 
@@ -250,6 +375,107 @@ export function assertFullPaperSimulation(worksheet, sourceBlueprint = null) {
   return worksheet
 }
 
+function worksheetMaxTokens(questionCount, sourceBlueprint = null) {
+  if (sourceBlueprint) return undefined
+  const count = expectedQuestionCount(questionCount)
+  return Math.min(12000, Math.max(7000, 2500 + count * 1300))
+}
+
+function worksheetModel(config, sourceBlueprint = null) {
+  if (sourceBlueprint) return config.model
+  if (config.worksheetModel) return config.worksheetModel
+  return config.providerId === 'deepseek' && /^deepseek-v4-/i.test(config.model || '')
+    ? 'deepseek-chat'
+    : config.model
+}
+
+const SOURCE_CHUNK_CHAR_LIMIT = 4500
+const SOURCE_CHUNK_OVERLAP = 120
+
+function splitSourceMaterial(fileText = '', { chunkSize = SOURCE_CHUNK_CHAR_LIMIT, overlap = SOURCE_CHUNK_OVERLAP } = {}) {
+  const text = String(fileText || '').trim()
+  if (!text) return []
+  if (text.length <= chunkSize) return [{ index: 1, total: 1, text, start: 0, end: text.length }]
+
+  const chunks = []
+  let start = 0
+  while (start < text.length) {
+    let end = Math.min(text.length, start + chunkSize)
+    if (end < text.length) {
+      const windowStart = Math.max(start + Math.floor(chunkSize * 0.65), end - 500)
+      const boundary = Math.max(
+        text.lastIndexOf('\n\n', end),
+        text.lastIndexOf('\n', end),
+        text.lastIndexOf('。', end),
+        text.lastIndexOf('.', end),
+        text.lastIndexOf(';', end)
+      )
+      if (boundary >= windowStart) end = boundary + 1
+    }
+    const chunkText = text.slice(start, end).trim()
+    if (chunkText) chunks.push({ index: chunks.length + 1, total: 0, text: chunkText, start, end })
+    if (end >= text.length) break
+    start = Math.max(end - overlap, start + 1)
+  }
+  return chunks.map(chunk => ({ ...chunk, total: chunks.length }))
+}
+
+function chunkQuestionCounts(totalQuestions, chunkCount) {
+  const count = Number(totalQuestions || 0)
+  if (!Number.isFinite(count) || count <= 0) return Array.from({ length: chunkCount }, () => 2)
+  const base = Math.floor(count / chunkCount)
+  let extra = count % chunkCount
+  return Array.from({ length: chunkCount }, () => base + (extra-- > 0 ? 1 : 0)).map(value => Math.max(1, value))
+}
+
+function promptForSourceChunk(prompt = '', chunk) {
+  return [
+    prompt,
+    '',
+    `Source material is split for generation. This request handles chunk ${chunk.index}/${chunk.total}.`,
+    'Generate only from this chunk. Do not assume unseen chunks are present in this model call.'
+  ].filter(Boolean).join('\n')
+}
+
+function renumberMergedQuestions(worksheets = []) {
+  let number = 1
+  return worksheets.flatMap(worksheet => (worksheet.questions || []).map(question => ({
+    ...question,
+    number: number++
+  })))
+}
+
+function mergeChunkWorksheets(worksheets = [], defaults = {}) {
+  const first = worksheets[0] || {}
+  const questions = renumberMergedQuestions(worksheets)
+  const anchors = []
+  for (const worksheet of worksheets) {
+    for (const anchor of worksheet.sourceAnchors || []) {
+      const text = String(anchor || '').trim()
+      if (text && !anchors.includes(text)) anchors.push(text)
+    }
+  }
+  return {
+    ...first,
+    title: first.title || `${defaults.grade || ''}${defaults.subject || ''}练习卷`,
+    grade: first.grade || defaults.grade || '',
+    subject: first.subject || defaults.subject || '',
+    mode: first.mode || defaults.mode || 'practice',
+    sourceAnchors: anchors,
+    questions,
+    answerKey: questions.map(question => ({
+      number: question.number,
+      answer: question.answer,
+      explanation: question.explanation
+    })),
+    paperBlueprint: {
+      ...(first.paperBlueprint || {}),
+      sourceType: 'uploaded_material',
+      totalQuestions: questions.length
+    }
+  }
+}
+
 function buildPrompt({ prompt, fileText, defaults, questionCount, sourceBlueprint = null, retryReason = '' }) {
   const count = Number(sourceBlueprint?.totalQuestions || expectedQuestionCount(questionCount))
   const parsedUpload = hasParsedUpload(fileText)
@@ -271,7 +497,7 @@ function buildPrompt({ prompt, fileText, defaults, questionCount, sourceBlueprin
       diagramSpecRequired: false,
       geometryDomain: 'none',
       geometryTemplateFamily: '',
-      diagramSpec: { type: 'none', points: {}, segments: [], labels: [] },
+      diagramSpec: { type: 'none' },
       tableSpec: { headers: [], rows: [] },
       options: [],
       answer: '',
@@ -304,6 +530,7 @@ function buildPrompt({ prompt, fileText, defaults, questionCount, sourceBlueprin
       '你是中小学教研出题老师和试卷命题专家。',
       '根据用户要求和资料内容，生成一份可打印练习卷。',
       '只输出严格 JSON 对象，不要 Markdown，不要额外解释。',
+      'JSON 字符串值必须保持短句，不要在字符串中插入原始换行；长解析请拆到 explanationSteps 数组。',
       '题目必须适合打印，必须包含答案和简短解析。',
       parsedUpload
         ? '用户上传了可解析资料：必须优先依据资料内容、知识点、题型或例题结构生成，不能脱离资料自由发挥。'
@@ -325,8 +552,10 @@ function buildPrompt({ prompt, fileText, defaults, questionCount, sourceBlueprin
       '数学题必须优先结构化：question 写自然中文题干，questionLatex/answerLatex 只放核心公式；解析必须用 explanationSteps 或 proofSteps 拆成自然步骤，不要输出一整坨长文本。',
       '重点照顾数学几何、函数图像、数轴、方程组、分式、根号、上下标和证明题。涉及这些内容时，公式必须写成 LaTeX；证明题 proofSteps 每步写清依据。',
       '涉及几何图、数轴、函数图像、电路图、光路图、化学方程式或实验图时，不要写“图略”；能抽象为图的题目必须返回 diagramSpec，表格题必须返回 tableSpec。',
-      'diagramSpec 可使用类型：number_line、grid_triangle、parallel_lines、congruent_triangles、triangle_ruler、generic_geometry、angle_bisector、fence_area、analytic_curve、solid_diagram、template；几何图至少包含 points、segments、labels。',
-      '高频平面几何模板优先使用 templateId：right_triangle_altitude_to_hypotenuse、triangle_parallel_segment。segments 推荐输出 [["A","B"],["A","C"]]；如果输出 {start,end}/{from,to} 也会被系统归一化。',
+      '平面几何图不要输出 points/segments 坐标。AI 只负责识别题型和参数，必须输出 diagramSpec={ "diagramType": "...", "params": {...} }，由程序模板库确定性绘图。',
+      'MVP 支持的平面几何 diagramType：TRIANGLE_ANGLE_SUM、ISOSCELES_TRIANGLE、RIGHT_TRIANGLE、CONGRUENT_TRIANGLES、PARALLEL_LINES_ANGLE、TRIANGLE_AUXILIARY_LINE。未知平面几何题型宁可返回 { "type": "none" } 并让系统补模板，也不要编造坐标。',
+      '示例：{ "diagramType": "ISOSCELES_TRIANGLE", "params": { "topPoint": "A", "leftPoint": "B", "rightPoint": "C", "equalSides": [["A","B"],["A","C"]], "knownAngles": [{ "point": "B", "value": "40°" }] } }。',
+      '数轴仍可使用 number_line；解析几何可使用 analytic_curve；立体几何可使用 solid_diagram。只有这些非平面模板类型才允许携带必要坐标或参数。',
       '如果用户要求整卷仿真，保持结构、题型、知识点和难度比例相似，但必须改写题目。',
       sourceBlueprint
         ? '当前是整卷仿真：必须严格按提供的 sourceQuestionBlueprints 逐题生成变式题，题号、题型、分值、知识点、难度一一对应。'
@@ -342,47 +571,55 @@ function buildPrompt({ prompt, fileText, defaults, questionCount, sourceBlueprin
       'Analytic geometry with ellipse/hyperbola/parabola/focus/eccentricity/asymptote/directrix/tangent/intersection must set needsDiagram=true and use diagramSpec.type="analytic_curve".',
       'Solid geometry with cube/cuboid/pyramid/dihedral angle/line-plane angle/plane/edge must set needsDiagram=true and use diagramSpec.type="solid_diagram".',
       'Supported new diagramSpec types: analytic_curve { curveKind,equation,axes,points,lines,asymptotes,labels } and solid_diagram { solidKind,templateId,vertices,edges,hiddenEdges,faces,marks,labels }.',
-      'For right-triangle altitude problems use diagramSpec.type="template", templateId="right_triangle_altitude_to_hypotenuse", with points A/B/C/D, segments AB/AC/BC/CD, rightAngleMarks, perpendicularMarks, and lengthLabels.',
-      'For triangle segment parallel problems use diagramSpec.type="template", templateId="triangle_parallel_segment", with points A/B/C/D/E, segments AB/AC/BC/DE, parallelMarks, and lengthLabels.',
+      'For junior plane geometry, do not emit coordinate points. Use semantic diagramSpec only: { "diagramType": "RIGHT_TRIANGLE", "params": { "vertices": ["A","B","C"], "rightAngleAt": "C" } }.',
       JSON.stringify(schema)
     ].join('\n'),
     user: [
-      `用户要求：${prompt || ''}`,
+      `User request: ${prompt || ''}`,
       '',
-      '默认信息：',
-      `年级：${defaults.grade || '未指定'}`,
-      `学科：${defaults.subject || '未指定'}`,
-      `难度：${defaults.difficulty || '未指定'}`,
-      `模式：${defaults.mode || 'practice'}`,
-      `题量：${count}`,
+      'Hard constraints:',
+      `- Grade: ${defaults.grade || 'unspecified'}`,
+      `- Subject: ${defaults.subject || 'unspecified'}`,
+      `- Difficulty: ${defaults.difficulty || 'unspecified'}`,
+      `- Mode: ${defaults.mode || 'practice'}`,
+      count > 0
+        ? `- Exact question count: ${count}`
+        : '- Question count: decide from the uploaded/input content. Cover the source completely; do not compress or omit important parts just to fit a fixed count.',
+      '- Every question must match the requested grade, subject, and knowledge topic.',
+      '- Do not switch to another grade or topic. If the request says 初三二次函数, every item must be appropriate for 初三二次函数.',
+      '- The worksheet title, grade, subject, section names, skills, questions, answers, and explanations must all be consistent with these constraints.',
+      '- For ordinary practice, avoid diagram-dependent graph-reading or geometry-composite questions unless you return a complete valid diagramSpec. For 初三二次函数, prefer vertex form, roots/intersections described algebraically, monotonicity, maximum/minimum, and application-model questions.',
       '',
-      parsedUpload ? '上传资料原文（必须作为出题依据）：' : '资料内容：',
-      fileText ? String(fileText).slice(0, 12000) : '无上传资料',
+      parsedUpload ? 'Uploaded source text / 上传资料原文, use it as the primary basis:' : 'Uploaded source text:',
+      fileText ? String(fileText).slice(0, 12000) : 'none',
       sourceBlueprint
         ? [
             '',
-            '整卷仿真蓝图（最高优先级，必须逐题对应）：',
+            'Full-paper simulation blueprint, highest priority:',
             JSON.stringify(sourceBlueprint)
           ].join('\n')
         : '',
       retryReason
         ? [
             '',
-            '上一次返回不合格，必须修正：',
+            'Previous response was invalid. Fix these issues:',
             retryReason,
-            `再次强调：questions 数组长度必须严格等于 ${count}，每题必须有 question、answer、explanation，并尽量返回 questionLatex/answerLatex/explanationSteps/diagramSpec。`,
-            '只能返回一个 JSON 对象，不能有 Markdown、注释或额外说明。'
+            'If the previous error says a question requires diagramSpec, either provide a complete valid diagramSpec or rewrite that item as a diagram-free quadratic-function question.',
+            'If uploaded material exists, include sourceAnchors in the top-level JSON.',
+            `Again: questions.length must be exactly ${count}. Each question needs question, answer, explanation, and should include questionLatex, answerLatex, explanationSteps, diagramSpec when useful.`,
+            'Return exactly one JSON object. No Markdown, no comments, no extra text.'
           ].join('\n')
         : ''
     ].join('\n')
   }
 }
 
-async function callChatContent({ system, user, config, temperature = 0.35, maxTokens }) {
+async function callChatContent({ system, user, config, temperature = 0.35, maxTokens, model }) {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), config.requestTimeoutMs)
+  const actualModel = model || config.model
   const body = {
-    model: config.model,
+    model: actualModel,
     messages: [
       { role: 'system', content: system },
       { role: 'user', content: user }
@@ -391,7 +628,7 @@ async function callChatContent({ system, user, config, temperature = 0.35, maxTo
     max_tokens: Number(maxTokens || config.maxTokens || 24000),
     response_format: { type: 'json_object' }
   }
-  if (config.providerId === 'deepseek' && /^deepseek-v4-/i.test(config.model || '')) {
+  if (config.providerId === 'deepseek' && /^deepseek-v4-/i.test(actualModel || '')) {
     body.thinking = { type: config.thinkingMode || 'disabled' }
   }
   try {
@@ -422,10 +659,63 @@ async function callChatContent({ system, user, config, temperature = 0.35, maxTo
   }
 }
 
-async function callModel({ prompt, fileText, defaults, questionCount, sourceBlueprint = null, config, retryReason = '' }) {
+async function callModel({ prompt, fileText, defaults, questionCount, sourceBlueprint = null, config, retryReason = '', maxTokens, model }) {
   const messages = buildPrompt({ prompt, fileText, defaults, questionCount, sourceBlueprint, retryReason })
-  const content = await callChatContent({ ...messages, config })
+  const content = await callChatContent({ ...messages, config, maxTokens, model })
   return { content, messages }
+}
+
+async function generateWorksheetFromSourceChunks({ prompt, fileText, defaults, expectedCount, config, grade, subject, questionCount }) {
+  const chunks = splitSourceMaterial(fileText)
+  const perChunkCounts = chunkQuestionCounts(expectedCount, chunks.length)
+  const worksheets = []
+  let lastError
+
+  for (const chunk of chunks) {
+    const chunkQuestionCount = perChunkCounts[chunk.index - 1]
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      try {
+        const { content } = await callModel({
+          prompt: promptForSourceChunk(prompt, chunk),
+          fileText: chunk.text,
+          defaults,
+          questionCount: chunkQuestionCount,
+          sourceBlueprint: null,
+          config,
+          retryReason: attempt > 1 ? lastError?.message || '' : '',
+          maxTokens: worksheetMaxTokens(chunkQuestionCount, null),
+          model: worksheetModel(config, null)
+        })
+        const payload = extractJson(content)
+        assertAiWorksheetPayloadSchema(payload, {
+          questionCount: chunkQuestionCount,
+          expectedCount: chunkQuestionCount,
+          sourceBlueprint: null
+        })
+        const worksheet = assertValidWorksheet(applyWorksheetGeometryPolicy(normalizeWorksheet(payload, defaults), null))
+        assertWorksheetQuality(worksheet)
+        assertWorksheetMatchesRequest(worksheet, { prompt, grade, subject })
+        assertUploadedSourceUsage(worksheet, chunk.text)
+        worksheets.push(worksheet)
+        lastError = null
+        break
+      } catch (error) {
+        lastError = error
+      }
+    }
+    if (lastError) {
+      throw new Error(`Source chunk ${chunk.index}/${chunk.total} generation failed: ${lastError.message || String(lastError)}`)
+    }
+  }
+
+  const merged = assertValidWorksheet(applyWorksheetGeometryPolicy(normalizeWorksheet(
+    mergeChunkWorksheets(worksheets, defaults),
+    defaults
+  ), null))
+  assertWorksheetQuality(merged)
+  assertWorksheetMatchesRequest(merged, { prompt, grade, subject })
+  assertUploadedSourceUsage(merged, fileText)
+  return { worksheet: merged, source: 'ai', sourceChunks: chunks.length }
 }
 
 function buildBlueprintPrompt({ prompt, fileText, defaults, baselineBlueprint, retryReason = '', repairFeedback = '' }) {
@@ -666,7 +956,9 @@ async function generateWorksheetFromBlueprint({ prompt, fileText, defaults, sour
         questionCount: expectedCount,
         sourceBlueprint,
         config,
-        retryReason
+        retryReason,
+        maxTokens: worksheetMaxTokens(expectedCount, sourceBlueprint),
+        model: worksheetModel(config, sourceBlueprint)
       })
       attempts.push({ stage: 'worksheet', attempt, messages, raw: content })
       const payload = extractJson(content)
@@ -685,6 +977,7 @@ async function generateWorksheetFromBlueprint({ prompt, fileText, defaults, sour
           : null
       }), sourceBlueprint))
       assertWorksheetQuality(worksheet)
+      assertWorksheetMatchesRequest(worksheet, { prompt, grade: defaults.grade, subject: defaults.subject })
       assertUploadedSourceUsage(worksheet, fileText)
       assertFullPaperSimulation(worksheet, sourceBlueprint)
       return { worksheet, attempts }
@@ -909,7 +1202,7 @@ function buildOptimizedFullPaperPrompt({ prompt, defaults, sourceBlueprint, batc
       diagramSpecRequired: false,
       geometryDomain: 'none',
       geometryTemplateFamily: '',
-      diagramSpec: { type: 'none', points: {}, segments: [], labels: [] },
+      diagramSpec: { type: 'none' },
       tableSpec: { headers: [], rows: [] },
       options: batch.from <= 10 ? ['A', 'B', 'C', 'D'] : [],
       answer: '答案',
@@ -935,10 +1228,10 @@ function buildOptimizedFullPaperPrompt({ prompt, defaults, sourceBlueprint, batc
       'Use LaTeX only in questionLatex/answerLatex, for example a^2, \\frac{1}{2}, \\sqrt{5}, \\angle ABC.',
       'Each blueprint item includes needsDiagram/diagramSpecRequired. Algebra, equations, inequalities, powers, factors, and pure computation must keep needsDiagram=false and diagramSpec={ "type": "none" }.',
       'Only questions whose blueprint or stem truly requires a diagram may set needsDiagram=true. If needsDiagram=true, diagramSpec is mandatory and must match geometryDomain/geometryTemplateFamily.',
-      'For geometry questions, diagramSpec is required. Geometry diagramSpec must include points, segments, labels. Parallel diagrams must include parallelMarks. Congruent diagrams must include equalMarks. Grid diagrams must include gridSpec.',
+      'For junior plane geometry questions, diagramSpec is required but must be semantic: { "diagramType": "TRIANGLE_ANGLE_SUM|ISOSCELES_TRIANGLE|RIGHT_TRIANGLE|CONGRUENT_TRIANGLES|PARALLEL_LINES_ANGLE|TRIANGLE_AUXILIARY_LINE", "params": {...} }. Do not output freehand points/segments coordinates.',
       'For analytic_geometry use diagramSpec.type="analytic_curve" with curveKind ellipse/parabola/hyperbola plus axes, equation, points, lines/asymptotes when relevant.',
       'For solid_geometry use diagramSpec.type="solid_diagram"; supported templateId values include cube_midpoint_dihedral_angle and square_pyramid_parallel_plane.',
-      'Prefer semantic templateId over free coordinates when possible. Known geometry templateIds: right_triangle_altitude_to_hypotenuse, triangle_parallel_segment, triangle_ruler_overlap_angle, congruent_triangles_on_line, parallel_lines_transversal, grid_triangle_construction, angle_bisector_rays.',
+      'Prefer diagramType + params over templateId. Unknown plane-geometry templates should use { "type": "none" } instead of misleading freehand coordinates.',
       'For table/application questions, tableSpec is required when the source question has a table.',
       JSON.stringify(schema)
     ].join('\n'),
@@ -1122,19 +1415,10 @@ export async function generateFullPaperWithAI({ prompt, fileText = '', grade = '
   return { worksheet: generated.worksheet, source: 'ai', sourceBlueprint: analysis.blueprint, aiDebug: debug }
 }
 
-function createFallbackWorksheet({ prompt, grade, subject, difficulty, mode, questionCount, defaults, sourceBlueprint, reason }) {
-  const worksheet = assertValidWorksheet(normalizeWorksheet(createMockWorksheet(prompt, {
-    grade,
-    subject,
-    difficulty,
-    mode,
-    questionCount: Number(sourceBlueprint?.totalQuestions || expectedQuestionCount(questionCount)),
-    sourceBlueprint
-  }), defaults))
-  return { worksheet, source: 'mock', fallbackReason: reason || 'mock fallback' }
-}
-
 export async function generateWorksheetWithAI({ prompt, fileText = '', grade = '', subject = '', difficulty = '', mode = '', questionCount = 0 }) {
+  if (['exam_simulation', 'full_paper_simulation', 'paper', 'simulation', 'exam'].includes(String(mode || '').trim())) {
+    throw new Error('整卷仿真/模拟试卷功能已暂停。请改用普通练习或上传资料生成。')
+  }
   const baseDefaults = worksheetDefaults({ prompt, grade, subject, difficulty, mode })
   const fullPaperRequested = isFullPaperSimulation({ mode: baseDefaults.mode, prompt, fileText })
   const sourceBlueprint = fullPaperRequested ? extractExamBlueprintFromText(fileText, baseDefaults) : null
@@ -1143,17 +1427,10 @@ export async function generateWorksheetWithAI({ prompt, fileText = '', grade = '
   const expectedCount = Number(sourceBlueprint?.totalQuestions || expectedQuestionCount(questionCount))
   const config = aiRuntimeConfig()
   if (config.mockMode) {
-    return createFallbackWorksheet({
-      prompt,
-      grade,
-      subject,
-      difficulty,
-      mode,
-      questionCount: expectedCount,
-      defaults,
-      sourceBlueprint,
-      reason: 'AI_MOCK_MODE enabled'
-    })
+    throw new Error('AI_MOCK_MODE=true 已禁用：不允许生成 demo/mock 练习卷。请设置 AI_MOCK_MODE=false 并配置真实 AI。')
+  }
+  if (config.fallbackToMock) {
+    throw new Error('AI_FALLBACK_TO_MOCK=true 已禁用：真实 AI 失败时必须报错，不允许 fallback 到 demo/mock 题目。')
   }
   if (!config.apiKey) {
     throw new Error('未配置 DEEPSEEK_API_KEY 或 AI_API_KEY，已禁止使用 demo/mock 题目。请在服务端环境变量配置 DeepSeek API Key 后重启后端。')
@@ -1161,6 +1438,20 @@ export async function generateWorksheetWithAI({ prompt, fileText = '', grade = '
 
   if (fullPaperRequested && sourceBlueprint) {
     return generateFullPaperWithAI({ prompt, fileText, grade, subject, difficulty, mode: normalizedMode, questionCount: expectedCount })
+  }
+
+  const sourceChunks = splitSourceMaterial(fileText)
+  if (!sourceBlueprint && sourceChunks.length > 1) {
+    return generateWorksheetFromSourceChunks({
+      prompt,
+      fileText,
+      defaults,
+      expectedCount,
+      config,
+      grade: defaults.grade,
+      subject: defaults.subject,
+      questionCount
+    })
   }
 
   let lastError
@@ -1173,7 +1464,9 @@ export async function generateWorksheetWithAI({ prompt, fileText = '', grade = '
         questionCount: expectedCount,
         sourceBlueprint,
         config,
-        retryReason: attempt > 1 ? lastError?.message || '' : ''
+        retryReason: attempt > 1 ? lastError?.message || '' : '',
+        maxTokens: worksheetMaxTokens(expectedCount, sourceBlueprint),
+        model: worksheetModel(config, sourceBlueprint)
       })
       const payload = extractJson(content)
       assertAiWorksheetPayloadSchema(payload, { questionCount, expectedCount, sourceBlueprint })
@@ -1191,26 +1484,13 @@ export async function generateWorksheetWithAI({ prompt, fileText = '', grade = '
           : null
       }), sourceBlueprint))
       assertWorksheetQuality(worksheet)
+      assertWorksheetMatchesRequest(worksheet, { prompt, grade: defaults.grade, subject: defaults.subject })
       assertUploadedSourceUsage(worksheet, fileText)
       assertFullPaperSimulation(worksheet, sourceBlueprint)
       return { worksheet, source: 'ai' }
     } catch (error) {
       lastError = error
     }
-  }
-
-  if (config.fallbackToMock) {
-    return createFallbackWorksheet({
-      prompt,
-      grade,
-      subject,
-      difficulty,
-      mode,
-      questionCount: expectedCount,
-      defaults,
-      sourceBlueprint,
-      reason: lastError?.message || 'AI generation failed'
-    })
   }
 
   throw new Error(`DeepSeek 真实生成失败，已禁止使用 demo/mock 题目：${lastError?.message || 'AI generation failed'}`)

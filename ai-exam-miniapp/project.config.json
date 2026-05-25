@@ -20,10 +20,23 @@
   "compileType": "miniprogram",
   "simulatorPluginLibVersion": {},
   "packOptions": {
-    "ignore": [],
+    "ignore": [
+      {
+        "type": "folder",
+        "value": "server"
+      },
+      {
+        "type": "folder",
+        "value": "miniprogram/assets/backup"
+      },
+      {
+        "type": "prefix",
+        "value": "miniprogram/assets/ChatGPT Image"
+      }
+    ],
     "include": []
   },
-  "appid": "touristappid",
+  "appid": "wx1e662dd78e2fb22e",
   "editorSetting": {},
   "description": "AI exam helper parent import config",
   "miniprogramRoot": "miniprogram/",

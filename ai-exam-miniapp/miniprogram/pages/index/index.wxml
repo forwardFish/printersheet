@@ -1,70 +1,71 @@
-<view class="safe-page index-page">
-  <nav-bar title="AI出题小助手"></nav-bar>
+<view class="safe-page index-page screenshot-{{screenshotMode}}">
+  <nav-bar title="AI题卷宝"></nav-bar>
 
   <view class="container index-container">
-    <image class="hero-card" src="/assets/hero-banner.png" mode="aspectFill"></image>
+    <block wx:if="{{screenshotMode !== 'recent'}}">
+      <image class="hero-card" src="/assets/ai_hero_card.png" mode="widthFix"></image>
 
-    <view class="points-row card">
-      <view class="points-left">
-        <view class="coin-icon"></view>
-        <text>剩余点数</text>
-        <text class="points-num">{{points}}</text>
+      <view class="points-row card">
+        <view class="points-left">
+          <image class="coin-icon" src="/assets/coin_icon.png" mode="aspectFit"></image>
+          <text class="points-label">剩余点数</text>
+          <text class="points-num">{{points}}</text>
+        </view>
+        <view class="upgrade-pill" bindtap="goPackages">
+          <text class="crown-mini">♛</text>
+          <text>升级获取更多点数</text>
+          <text class="pill-arrow">›</text>
+        </view>
       </view>
-      <view class="upgrade-pill" bindtap="goPackages">
-        <text class="crown-mini">♛</text>
-        <text>升级获取更多点数</text>
-        <text class="pill-arrow">›</text>
-      </view>
-    </view>
 
-    <view class="textarea-wrap {{statusType === 'error' ? 'error' : ''}}">
-      <textarea
-        class="prompt-input"
-        maxlength="300"
-        value="{{prompt}}"
-        bindinput="onPromptInput"
-        placeholder="例如：生成 5 道初一数学一元一次方程中等题，带答案解析，适合打印。"
-        placeholder-class="placeholder"
-        auto-height="false"
-        disabled="{{loading}}"
-      ></textarea>
-      <view class="counter">{{prompt.length}}/300</view>
-    </view>
-
-    <view wx:if="{{smartHint}}" class="smart-hint">{{smartHint}}</view>
-
-    <view wx:if="{{promptGuardMessage}}" class="prompt-guard {{promptGuardState}}">
-      <view class="prompt-guard-text">{{promptGuardMessage}}</view>
-      <view wx:if="{{promptSuggestions.length}}" class="suggestion-row">
-        <view
-          wx:for="{{promptSuggestions}}"
-          wx:key="*this"
-          class="suggestion-chip"
-          data-prompt="{{item}}"
-          bindtap="applyPromptSuggestion"
-        >{{item}}</view>
+      <view class="textarea-wrap {{statusType === 'error' ? 'error' : ''}}">
+        <textarea
+          class="prompt-input"
+          maxlength="300"
+          value="{{prompt}}"
+          bindinput="onPromptInput"
+          placeholder="{{promptPlaceholder}}"
+          placeholder-class="placeholder"
+          auto-height="false"
+          disabled="{{loading}}"
+        ></textarea>
+        <view class="counter">{{prompt.length}}/300</view>
       </view>
-    </view>
 
-    <view class="quick-row">
-      <view class="quick-card {{openDropdown==='grade' ? 'active' : ''}}" bindtap="chooseGrade">
-        <view class="quick-icon cap"></view>
-        <text>{{grade}}</text>
-        <text class="arrow">⌄</text>
-      </view>
-      <view class="quick-card {{openDropdown==='subject' ? 'active' : ''}}" bindtap="chooseSubject">
-        <view class="quick-icon book"></view>
-        <text>{{subject}}</text>
-        <text class="arrow">⌄</text>
-      </view>
-      <view class="quick-card" bindtap="chooseDifficulty">
-        <view class="quick-icon chart"></view>
-        <text>{{difficulty}}</text>
-        <text class="arrow">⌄</text>
-      </view>
-    </view>
+      <view wx:if="{{smartHint}}" class="smart-hint">{{smartHint}}</view>
 
-    <view wx:if="{{openDropdown === 'grade'}}" class="select-panel card">
+      <view wx:if="{{promptGuardMessage}}" class="prompt-guard {{promptGuardState}}">
+        <view class="prompt-guard-text">{{promptGuardMessage}}</view>
+        <view wx:if="{{promptSuggestions.length}}" class="suggestion-row">
+          <view
+            wx:for="{{promptSuggestions}}"
+            wx:key="*this"
+            class="suggestion-chip"
+            data-prompt="{{item}}"
+            bindtap="applyPromptSuggestion"
+          >{{item}}</view>
+        </view>
+      </view>
+
+      <view class="quick-row">
+        <view class="quick-card {{openDropdown==='grade' ? 'active' : ''}}" bindtap="chooseGrade">
+          <image class="quick-icon" src="/assets/logo-grade.png" mode="aspectFit"></image>
+          <text class="quick-label">{{grade}}</text>
+          <view class="arrow"></view>
+        </view>
+        <view class="quick-card {{openDropdown==='subject' ? 'active' : ''}}" bindtap="chooseSubject">
+          <image class="quick-icon" src="/assets/logo-subject.png" mode="aspectFit"></image>
+          <text class="quick-label">{{subject}}</text>
+          <view class="arrow"></view>
+        </view>
+        <view class="quick-card" bindtap="chooseDifficulty">
+          <image class="quick-icon" src="/assets/logo-difficulty.png" mode="aspectFit"></image>
+          <text class="quick-label">{{difficulty}}</text>
+          <view class="arrow"></view>
+        </view>
+      </view>
+
+      <view wx:if="{{openDropdown === 'grade'}}" class="select-panel card">
       <view class="select-head">选择年级</view>
       <view wx:for="{{gradeGroups}}" wx:for-item="group" wx:key="name" class="select-group">
         <view class="select-group-title">{{group.name}}</view>
@@ -79,9 +80,9 @@
           >{{gradeItem}}</view>
         </view>
       </view>
-    </view>
+      </view>
 
-    <view wx:if="{{openDropdown === 'subject'}}" class="select-panel card compact">
+      <view wx:if="{{openDropdown === 'subject'}}" class="select-panel card compact">
       <view class="select-head">选择学科</view>
       <view class="select-grid subject-grid">
         <view
@@ -92,23 +93,23 @@
           bindtap="selectSubject"
         >{{item}}</view>
       </view>
-    </view>
-
-    <view class="cost-card card">
-      <view class="doc-icon"></view>
-      <view class="cost-copy">
-        <view class="cost-title">{{currentModeLabel}}</view>
-        <view class="cost-desc">{{currentModeDesc}}</view>
       </view>
-      <view class="cost-num">{{currentModeCost}} 点</view>
-    </view>
 
-    <view class="more-options" bindtap="toggleMore">
-      <text>更多选项</text>
-      <text class="down">{{showMore ? '⌃' : '⌄'}}</text>
-    </view>
+      <view class="cost-card card">
+        <image class="doc-icon" src="/assets/logo-practice.png" mode="aspectFit"></image>
+        <view class="cost-copy">
+          <view class="cost-title">{{currentModeLabel}}</view>
+          <view class="cost-desc">{{currentModeDesc}}</view>
+        </view>
+        <view class="cost-num">{{currentModeCost}} 点</view>
+      </view>
 
-    <view wx:if="{{showMore}}" class="more-panel card">
+      <view class="more-options" bindtap="toggleMore">
+        <text>更多选项</text>
+        <view class="toggle-arrow {{showMore ? 'expanded' : ''}}"></view>
+      </view>
+
+      <view wx:if="{{showMore}}" class="more-panel card">
       <view class="option-title">生成类型</view>
       <view class="mode-row">
         <view
@@ -122,22 +123,32 @@
           <text wx:if="{{mode===item.id}}" class="mode-check">✓</text>
         </view>
       </view>
-    </view>
+      </view>
 
-    <button
-      class="primary-btn generate-btn {{loading || !canGenerate || queueFull || duplicateGenerationLocked ? 'disabled' : ''}}"
-      loading="{{loading}}"
-      disabled="{{loading || !canGenerate || queueFull || duplicateGenerationLocked}}"
-      bindtap="handleGenerate"
-    >{{submitButtonText || generateButtonText}}</button>
+      <view class="action-panel">
+        <view
+          wx:if="{{screenshotMode !== 'visual-reference'}}"
+          class="primary-btn generate-btn {{loading || !canGenerate || queueFull || duplicateGenerationLocked ? 'disabled' : ''}}"
+          bindtap="handleGenerate"
+        >{{submitButtonText || generateButtonText}}</view>
+      </view>
+    </block>
+
+    <image
+      wx:if="{{screenshotMode === 'recent'}}"
+      class="recent-upload-banner"
+      src="/assets/upload_banner.png"
+      mode="widthFix"
+    ></image>
 
     <view class="upload-card card {{filePath ? 'selected' : ''}}" bindtap="chooseFile">
-      <view class="upload-icon">↥</view>
+      <view class="upload-icon"></view>
       <view class="upload-copy">
-        <view class="upload-title">{{fileName || '上传资料（PDF / Word / 图片）'}}</view>
-        <view class="upload-desc">{{filePath ? '已选择资料，可用于生成或整卷仿真。' : '支持 PDF、Word、图片，最多上传 10MB'}}</view>
+        <view class="upload-title">{{fileName || uploadTitle}}</view>
+        <view class="upload-desc">{{filePath ? '已选择资料，可用于生成练习题。' : uploadDesc}}</view>
       </view>
       <view wx:if="{{filePath}}" class="remove-file" catchtap="removeFile">移除</view>
+      <view wx:else class="upload-arrow"></view>
     </view>
 
     <view wx:if="{{generationTasks.length}}" class="task-list {{recentGenerationCollapsed ? 'collapsed' : ''}}">
@@ -148,7 +159,7 @@
         </view>
         <view class="task-head-right">
           <view class="task-list-count">{{generationTasks.length}}</view>
-          <view class="task-toggle-icon">{{recentGenerationCollapsed ? '⌄' : '⌃'}}</view>
+          <view class="toggle-arrow {{recentGenerationCollapsed ? '' : 'expanded'}}"></view>
         </view>
       </view>
       <view wx:if="{{!recentGenerationCollapsed}}" class="task-list-body">

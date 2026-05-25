@@ -21,8 +21,8 @@ function nowText() {
 function modeLabel(mode) {
   const normalized = normalizeGenerationMode(mode)
   if (normalized === 'extended') return '加长练习卷'
-  if (normalized === 'wrong_question_similar') return '错题同类题'
-  if (normalized === 'upload_material') return '上传资料'
+  if (normalized === 'wrong_question_similar') return '错题举一反三'
+  if (normalized === 'upload_material') return '按资料出题'
   if (normalized === 'full_paper_simulation') return '整卷仿真'
   return '普通练习卷'
 }
@@ -130,7 +130,14 @@ function addPurchase(purchase) {
   wx.setStorageSync(KEYS.PURCHASES, list.slice(0, 50))
 }
 function getPurchases() { return (wx.getStorageSync(KEYS.PURCHASES) || []).map(normalizePurchase) }
-function getToken() { return wx.getStorageSync(KEYS.TOKEN) || '' }
+function getToken() {
+  const token = wx.getStorageSync(KEYS.TOKEN) || ''
+  if (token === 'local-token' || token === 'mock-token' || String(token).indexOf('local-') === 0 || String(token).indexOf('mock-') === 0) {
+    wx.removeStorageSync(KEYS.TOKEN)
+    return ''
+  }
+  return token
+}
 function setToken(token) { wx.setStorageSync(KEYS.TOKEN, token || '') }
 function clearToken() { wx.removeStorageSync(KEYS.TOKEN) }
 

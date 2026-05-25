@@ -1,4 +1,7 @@
-export function registerMainChainRoutes({ app, uploadSingleFile, auth, authService, entitlementService, orderService, paymentProvider, worksheetService, generationJobService, fileAdapter }) {
+import fs from 'fs/promises'
+import { estimateGenerationCharge } from '../lib/meteredGeneration.js'
+
+export function registerMainChainRoutes({ app, uploadSingleFile, auth, authService, entitlementService, orderService, rewardService, paymentProvider, worksheetService, generationJobService, fileAdapter }) {
   app.post('/api/auth/wechat-login', async (req, res) => {
     try {
       const result = await authService.login(req.body || {})
@@ -12,9 +15,30 @@ export function registerMainChainRoutes({ app, uploadSingleFile, auth, authServi
     res.json({ success: true, user: req.user, ...await entitlementService.getEntitlements(req.user.id) })
   })
 
+  app.post('/api/me/profile', auth, async (req, res) => {
+    try {
+      const user = await authService.updateProfile(req.user.id, req.body || {})
+      res.json({ success: true, user, ...await entitlementService.getEntitlements(user.id) })
+    } catch (error) {
+      res.status(error.statusCode || 400).json({ success: false, message: error.message })
+    }
+  })
+
   app.get('/api/points', auth, async (req, res) => {
     const entitlements = await entitlementService.getEntitlements(req.user.id)
     res.json({ success: true, pointsBalance: entitlements.pointsBalance })
+  })
+
+  app.post('/api/rewards/daily-share', auth, async (req, res) => {
+    try {
+      const result = await rewardService.claimDailyShareReward({
+        userId: req.user.id,
+        channel: req.body?.channel || 'timeline'
+      })
+      res.json(result)
+    } catch (error) {
+      res.status(error.statusCode || 400).json({ success: false, message: error.message })
+    }
   })
 
   app.get('/api/products', (_, res) => {
@@ -24,7 +48,12 @@ export function registerMainChainRoutes({ app, uploadSingleFile, auth, authServi
   app.post('/api/orders/create', auth, async (req, res) => {
     try {
       const order = await orderService.createOrder({ userId: req.user.id, productCode: req.body.productCode || req.body.planId })
-      res.json({ success: true, order })
+      if (paymentProvider.isRealPaymentEnabled?.()) {
+        const prepay = await paymentProvider.createPrepay({ order, user: req.user })
+        res.json({ success: true, order, paymentProvider: 'wechat', ...prepay })
+        return
+      }
+      res.json({ success: true, order, paymentProvider: 'mock' })
     } catch (error) {
       res.status(error.statusCode || 400).json({ success: false, message: error.message })
     }
@@ -39,12 +68,38 @@ export function registerMainChainRoutes({ app, uploadSingleFile, auth, authServi
     }
   })
 
+  app.post('/api/orders/:orderNo/refresh', auth, async (req, res) => {
+    try {
+      const orderNo = req.params.orderNo
+      const order = await orderService.findUserOrder({ userId: req.user.id, orderNo })
+      if (!order) {
+        res.status(404).json({ success: false, message: 'order not found' })
+        return
+      }
+      const result = paymentProvider.refreshOrder
+        ? await paymentProvider.refreshOrder(orderNo)
+        : { order, fulfilled: false, transaction: null }
+      res.json({
+        success: true,
+        ...result,
+        pointsBalance: (await entitlementService.getEntitlements(req.user.id)).pointsBalance
+      })
+    } catch (error) {
+      res.status(error.statusCode || 400).json({ success: false, message: error.message })
+    }
+  })
+
   app.post('/api/pay/notify', async (req, res) => {
     try {
+      if (paymentProvider.handleNotify) {
+        await paymentProvider.handleNotify({ headers: req.headers, body: req.body, rawBody: req.rawBody || JSON.stringify(req.body || {}) })
+        res.status(204).end()
+        return
+      }
       const result = await paymentProvider.markSuccess(req.body.orderNo)
       res.json({ success: true, ...result })
     } catch (error) {
-      res.status(error.statusCode || 400).json({ success: false, message: error.message })
+      res.status(error.statusCode || 400).json({ code: 'FAIL', message: error.message })
     }
   })
 
@@ -58,6 +113,32 @@ export function registerMainChainRoutes({ app, uploadSingleFile, auth, authServi
       res.json(result)
     } catch (error) {
       res.status(error.statusCode || 500).json({ success: false, message: error.message })
+    }
+  })
+
+  app.post('/api/generation/estimate', auth, uploadSingleFile, async (req, res) => {
+    try {
+      const charge = await estimateGenerationCharge({
+        mode: req.body?.mode || '',
+        prompt: req.body?.prompt || '',
+        file: req.file || null,
+        meta: {
+          fileName: req.body?.fileName,
+          fileType: req.body?.fileType,
+          fileExtension: req.body?.fileExtension
+        }
+      })
+      res.json({ success: true, ...charge })
+    } catch (error) {
+      res.status(error.statusCode || 400).json({
+        success: false,
+        message: error.message,
+        code: error.code || '',
+        estimatedPages: error.estimatedPages,
+        maxPages: error.maxPages
+      })
+    } finally {
+      if (req.file?.path) fs.unlink(req.file.path).catch(() => {})
     }
   })
 

@@ -32,6 +32,13 @@ Page({
     try {
       const result = await api.createMockPurchase(this.data.plan.id)
       if (typeof result.pointsBalance === 'number') storage.setPoints(result.pointsBalance)
+      if (result.paymentPending) {
+        wx.hideLoading()
+        this.setData({ paying: false })
+        await modal.showTip('支付已完成，权益到账以服务端回调为准，请稍后刷新我的页面。', { title: '支付成功' })
+        returnAfterPayment()
+        return
+      }
       wx.hideLoading()
       this.setData({ paying: false })
       await modal.showTip('支付成功，点数和会员权益已发放。', { title: '支付成功' })
@@ -39,6 +46,10 @@ Page({
     } catch (e) {
       wx.hideLoading()
       this.setData({ paying: false })
+      if (e.isPaymentCancel) {
+        modal.showTip('已取消支付，订单不会扣款。', { title: '支付已取消' })
+        return
+      }
       modal.showError(e.message || '支付失败', { title: '支付失败' })
     }
   }

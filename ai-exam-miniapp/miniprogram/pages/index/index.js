@@ -62,26 +62,36 @@ const UPLOAD_TYPES = {
   webp: { label: '图片', parserStatus: 'placeholder', hint: '图片 OCR 暂未接入，本地阶段会用占位提示进入生成。' }
 }
 
-function getExtension(file) {
-  const name = file.name || file.path || ''
+function getExtension(file, fallback = '') {
+  const name = file.name || file.path || file.tempFilePath || ''
   const match = /\.([a-z0-9]+)$/i.exec(name)
-  return match ? match[1].toLowerCase() : ''
+  return match ? match[1].toLowerCase() : String(fallback || '').toLowerCase()
 }
 function formatFileSize(size) {
   if (!size) return '大小未知'
   if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`
   return `${(size / 1024 / 1024).toFixed(1)} MB`
 }
-function buildUploadMeta(file) {
-  const ext = getExtension(file)
+function buildUploadMeta(file, fallbackExtension = '') {
+  const ext = getExtension(file, fallbackExtension)
   const type = UPLOAD_TYPES[ext]
   if (!type) return { valid: false, reason: '仅支持 PDF、Word、PNG、JPG、JPEG、WEBP 文件。' }
   if (file.size > MAX_UPLOAD_SIZE) return { valid: false, reason: '文件不能超过 10MB，请压缩后再上传。' }
-  return { valid: true, path: file.path, name: file.name || `已上传资料.${ext}`, size: file.size || 0, sizeLabel: formatFileSize(file.size), extension: ext, typeLabel: type.label, parserStatus: type.parserStatus, parserHint: type.hint }
+  return { valid: true, path: file.path || file.tempFilePath, name: file.name || `已上传资料.${ext}`, size: file.size || 0, sizeLabel: formatFileSize(file.size), extension: ext, typeLabel: type.label, parserStatus: type.parserStatus, parserHint: type.hint }
 }
 function modePatch(mode) {
   const info = billing.getGenerationMode(mode)
-  return { mode: info.id, questionCount: info.questionCount, currentModeLabel: info.label, currentModeCost: info.cost, currentModeDesc: info.desc, generateButtonText: info.buttonText }
+  return {
+    mode: info.id,
+    questionCount: info.questionCount,
+    currentModeLabel: info.label,
+    currentModeCost: info.cost,
+    currentModeDesc: info.desc,
+    generateButtonText: info.buttonText,
+    promptPlaceholder: info.placeholder,
+    uploadTitle: info.uploadTitle,
+    uploadDesc: info.uploadDesc
+  }
 }
 function isPrimaryGrade(grade) { return String(grade || '').indexOf('小学') === 0 }
 function subjectOptionsForGrade(grade) { return isPrimaryGrade(grade) ? PRIMARY_SUBJECT_OPTIONS : SECONDARY_SUBJECT_OPTIONS }
@@ -225,6 +235,9 @@ function formatGenerationFailureMessage(message = '') {
   const text = String(message || '').trim()
   if (!text) return '本次没有生成成功，不会扣点。请稍后再试。'
   const lower = text.toLowerCase()
+  if (text.includes('登录已失效') || text.includes('重新微信登录') || lower.includes('unauthorized') || lower.includes('http 401')) {
+    return '登录已失效，请重新微信登录后再生成。本次没有扣点。'
+  }
   if (text.includes('超时') || lower.includes('timeout')) {
     return '出题服务响应超时，本次没有生成成功，不会扣点。请稍后再试。'
   }
@@ -237,12 +250,29 @@ function formatGenerationFailureMessage(message = '') {
   return text.length > 48 ? '本次没有生成成功，不会扣点。请稍后再试。' : text
 }
 
+function buildCopyablePrompt(data = {}, promptValue = '') {
+  const prompt = String(promptValue || data.prompt || '').trim()
+  const lines = [
+    '可复制给 AI 的提示词：',
+    `请生成一份${data.grade || '对应年级'}${data.subject || '对应学科'}练习卷。`,
+    `出题要求：${prompt || '围绕当前知识点生成练习题。'}`,
+    `难度：${data.difficulty || '中等'}。`,
+    `题量：${data.questionCount || 5} 道。`,
+    '要求：题目必须新编，包含答案和简短解析，不要使用示例题或 demo 题。'
+  ]
+  return lines.join('\n')
+}
+
+function formatGenerationFailureWithPrompt(message = '', data = {}, promptValue = '') {
+  return `${formatGenerationFailureMessage(message)}\n\n${buildCopyablePrompt(data, promptValue)}`
+}
+
 function isActiveTask(task) {
   return ['queued', 'running'].includes(String(task && task.status || ''))
 }
 
 function isLockedTask(task) {
-  return !!(task && task.signature && task.status)
+  return !!(task && task.signature && isActiveTask(task))
 }
 
 function generationSignature(data = {}, promptValue) {
@@ -272,6 +302,16 @@ function buildSubmitPatch(data = {}) {
         ? `已有 ${MAX_ACTIVE_GENERATION_TASKS} 个任务生成中`
         : data.generateButtonText
   return { currentGenerationSignature, duplicateGenerationLocked, submitButtonText }
+}
+
+function confirmModal(options = {}) {
+  return new Promise(resolve => {
+    modal.showConfirm({
+      ...options,
+      success: res => resolve(!!res.confirm),
+      fail: () => resolve(false)
+    })
+  })
 }
 
 function buildTaskListPatch(tasks = []) {
@@ -413,12 +453,12 @@ Page({
   selectMode(e) {
     const mode = e.currentTarget.dataset.mode
     const info = billing.getGenerationMode(mode)
-    const patch = { ...modePatch(mode), statusType: 'empty', statusMessage: `${info.label} 将消耗 ${info.cost} 点。` }
+    const patch = { ...modePatch(mode), statusType: 'empty', statusMessage: info.desc }
     this.setData({ ...patch, ...buildSubmitPatch({ ...this.data, ...patch }) })
   },
   selectSimulationPageCount(e) {
     const count = Number(e.currentTarget.dataset.count)
-    this.setData({ simulationPageCount: count, statusType: count > 5 ? 'error' : 'empty', statusMessage: count > 5 ? '当前版本最多支持上传 5 页试卷。' : '整卷仿真会根据原卷结构生成新题。' })
+    this.setData({ simulationPageCount: count, statusType: 'empty', statusMessage: '已记录页数；当前只按普通练习生成。' })
   },
   chooseGrade() { this.setData({ openDropdown: this.data.openDropdown === 'grade' ? '' : 'grade' }) },
   chooseSubject() { this.setData({ openDropdown: this.data.openDropdown === 'subject' ? '' : 'subject' }) },
@@ -466,26 +506,71 @@ Page({
       }
     })
   },
-  chooseFile() {
+  chooseUploadSource() {
+    wx.showActionSheet({
+      itemList: ['上传图片', '上传 PDF / Word'],
+      success: res => {
+        if (res.tapIndex === 0) this.chooseImageFile()
+        else this.chooseDocumentFile()
+      }
+    })
+  },
+  applyUploadMeta(file, fallbackExtension = '') {
+    const meta = buildUploadMeta(file, fallbackExtension)
+    if (!meta.valid) {
+      this.setData({ statusType: 'error', statusMessage: meta.reason })
+      modal.showMessage({ title: '无法使用该文件', content: meta.reason })
+      return
+    }
+    if (!meta.path) {
+      const reason = '没有拿到图片临时路径，请重新选择图片。'
+      this.setData({ statusType: 'error', statusMessage: reason })
+      modal.showMessage({ title: '无法使用该图片', content: reason })
+      return
+    }
+    const nextMode = this.data.mode === 'normal' ? 'upload_material' : this.data.mode
+    const patch = { filePath: meta.path, fileName: meta.name, fileSize: meta.size, fileSizeLabel: meta.sizeLabel, fileExtension: meta.extension, fileTypeLabel: meta.typeLabel, fileParseStatus: meta.parserStatus, fileParseHint: meta.parserHint, canGenerate: true, ...modePatch(nextMode), statusType: 'ready', statusMessage: '资料已选择，生成时会上传到后端解析。' }
+    this.setData({ ...patch, ...buildSubmitPatch({ ...this.data, ...patch }) })
+  },
+  chooseImageFile() {
+    const handleImage = item => {
+      if (!item) return
+      const path = item.tempFilePath || item.path
+      this.applyUploadMeta({ path, name: path || 'upload.jpg', size: item.size || 0 }, 'jpg')
+    }
+    if (wx.chooseMedia) {
+      wx.chooseMedia({
+        count: 1,
+        mediaType: ['image'],
+        sourceType: ['album', 'camera'],
+        success: res => handleImage(res.tempFiles && res.tempFiles[0]),
+        fail: () => this.setData({ statusType: 'empty', statusMessage: '未选择图片。' })
+      })
+      return
+    }
+    wx.chooseImage({
+      count: 1,
+      sizeType: ['original', 'compressed'],
+      sourceType: ['album', 'camera'],
+      success: res => handleImage({ tempFilePath: res.tempFilePaths && res.tempFilePaths[0], size: res.tempFiles && res.tempFiles[0] && res.tempFiles[0].size }),
+      fail: () => this.setData({ statusType: 'empty', statusMessage: '未选择图片。' })
+    })
+  },
+  chooseDocumentFile() {
     wx.chooseMessageFile({
       count: 1,
       type: 'file',
-      extension: Object.keys(UPLOAD_TYPES),
+      extension: ['pdf', 'docx'],
       success: res => {
         const file = res.tempFiles[0]
         if (!file) return
-        const meta = buildUploadMeta(file)
-        if (!meta.valid) {
-          this.setData({ statusType: 'error', statusMessage: meta.reason })
-          modal.showMessage({ title: '无法使用该文件', content: meta.reason })
-          return
-        }
-        const nextMode = this.data.mode === 'normal' ? 'upload_material' : this.data.mode
-        const patch = { filePath: meta.path, fileName: meta.name, fileSize: meta.size, fileSizeLabel: meta.sizeLabel, fileExtension: meta.extension, fileTypeLabel: meta.typeLabel, fileParseStatus: meta.parserStatus, fileParseHint: meta.parserHint, canGenerate: true, ...modePatch(nextMode), statusType: 'ready', statusMessage: '资料已选择，生成时会上传到后端解析。' }
-        this.setData({ ...patch, ...buildSubmitPatch({ ...this.data, ...patch }) })
+        this.applyUploadMeta(file)
       },
-      fail: () => this.setData({ statusType: 'empty', statusMessage: '未选择文件，可继续用文字要求生成。' })
+      fail: () => this.setData({ statusType: 'empty', statusMessage: '未选择文件，可以继续用文字要求生成。' })
     })
+  },
+  chooseFile() {
+    return this.chooseUploadSource()
   },
   removeFile() {
     const patch = { filePath: '', fileName: '', fileSize: 0, fileSizeLabel: '', fileExtension: '', fileTypeLabel: '', fileParseStatus: '', fileParseHint: '', canGenerate: canGenerateFrom({ prompt: this.data.prompt, filePath: '' }), statusType: 'empty', statusMessage: '已移除资料，可继续用文字要求生成。' }
@@ -560,7 +645,7 @@ Page({
       return
     }
     if (task.status === 'failed') {
-      modal.showMessage({ title: '生成失败', content: formatGenerationFailureMessage(task.errorMessage || task.message) })
+      modal.showMessage({ title: '生成失败', content: formatGenerationFailureWithPrompt(task.errorMessage || task.message, { ...this.data, ...task }, task.prompt || this.data.prompt) })
     }
   },
   async pollGenerationJob(jobId) {
@@ -602,13 +687,72 @@ Page({
     this.jobPollTimers[jobId] = setTimeout(tick, 300)
   },
   buildGenerationPrompt(prompt) {
-    return [prompt || DEFAULT_PROMPT, `年级：${this.data.grade}`, `学科：${this.data.subject}`, `难度：${this.data.difficulty}`, `题量：${this.data.questionCount}`, `生成类型：${billing.getGenerationModeLabel(this.data.mode)}`].join('\n')
+    const lines = [
+      prompt || DEFAULT_PROMPT,
+      `年级：${this.data.grade}`,
+      `学科：${this.data.subject}`,
+      `难度：${this.data.difficulty}`,
+      `生成类型：${billing.getGenerationModeLabel(this.data.mode)}`
+    ]
+    if (billing.isPageMeteredMode(this.data.mode)) {
+      lines.push('题量：按输入或上传资料内容完整生成，不限定固定题数。')
+      lines.push(`资料页数：约 ${this.data.estimatedPages || 1} 页。`)
+    } else {
+      lines.push(`题量：${this.data.questionCount}`)
+    }
+    return lines.join('\n')
+  },
+  async resolveGenerationCharge(prompt) {
+    if (!billing.isPageMeteredMode(this.data.mode)) {
+      const pointsRequired = billing.getGenerationPointCost(this.data.mode)
+      return { estimatedPages: 1, pointsRequired, metered: false, confidence: 'fixed' }
+    }
+    this.setData({ statusType: 'loading', statusMessage: '正在识别资料页数，不会调用大模型，也不会扣点。' })
+    const charge = await api.estimateGeneration({
+      prompt,
+      filePath: this.data.filePath,
+      fileName: this.data.fileName,
+      fileType: this.data.fileTypeLabel,
+      fileSize: this.data.fileSize,
+      fileExtension: this.data.fileExtension,
+      mode: this.data.mode
+    })
+    const estimatedPages = Math.max(1, Math.ceil(Number(charge.estimatedPages || 1)))
+    const pointsRequired = Number(charge.pointsRequired || billing.getMeteredPointCost(estimatedPages))
+    const sourceLabel = charge.source === 'pdf' ? 'PDF 页数'
+      : charge.source === 'word' ? 'Word 字数估算'
+        : charge.source === 'image' ? '图片'
+          : '文字长度估算'
+    const confirmed = await confirmModal({
+      title: '确认生成',
+      content: `已识别约 ${estimatedPages} 页（${sourceLabel}），本次将消耗 ${pointsRequired} 点。系统会按资料内容完整生成新题，不限定固定题数。是否继续？`,
+      confirmText: `消耗 ${pointsRequired} 点`,
+      cancelText: '取消'
+    })
+    if (!confirmed) {
+      this.setData({ statusType: 'empty', statusMessage: '已取消生成，不会扣点。' })
+      return null
+    }
+    const patch = { estimatedPages, currentModeCost: pointsRequired }
+    this.setData({ ...patch, statusType: 'empty', statusMessage: `已确认：约 ${estimatedPages} 页，本次消耗 ${pointsRequired} 点。` })
+    return { ...charge, estimatedPages, pointsRequired, metered: true }
   },
   async handleGenerate() {
-    if (this.data.loading || this.submittingGeneration) return
+    if (this.data.loading) {
+      this.setData({ statusType: 'loading', statusMessage: '正在处理上一条生成请求，请稍等。' })
+      return
+    }
+    if (this.submittingGeneration) {
+      this.setData({ statusType: 'loading', statusMessage: '上一条生成请求还在提交中，请稍等。' })
+      return
+    }
     if (!storage.getToken()) { wx.navigateTo({ url: '/pages/login/login' }); return }
     const prompt = (this.data.prompt || '').trim()
     if (!prompt && !this.data.filePath) { this.setData({ statusType: 'error', statusMessage: '请先输入出题要求，或上传 PDF / Word / 图片资料。' }); return }
+    if (this.data.filePath && this.data.mode === 'normal') {
+      const patch = { ...modePatch('upload_material'), canGenerate: true }
+      this.setData({ ...patch, ...buildSubmitPatch({ ...this.data, ...patch }) })
+    }
     const assessment = assessPrompt(prompt, this.data)
     if (prompt && !this.data.filePath && !assessment.allowGenerate) {
       this.setData({
@@ -621,18 +765,42 @@ Page({
       })
       return
     }
-    if ((this.data.mode === 'upload_material' || this.data.mode === 'full_paper_simulation') && !this.data.filePath) {
-      modal.showMessage({ title: '需要上传资料', content: '上传资料生成和整卷仿真需要先上传 PDF、Word 或图片资料。' })
+    if (this.data.mode === 'upload_material' && !this.data.filePath) {
+      modal.showMessage({ title: '需要上传资料', content: '请先上传教材、讲义、试卷或知识点资料，再按资料内容生成练习。' })
       return
     }
-    const needPoints = billing.getGenerationPointCost(this.data.mode)
+    if (this.data.mode === 'full_paper_simulation') {
+      const message = formatGenerationFailureWithPrompt('整卷仿真/模拟试卷功能已暂停。', this.data, prompt)
+      this.setData({ statusType: 'error', statusMessage: message })
+      modal.showMessage({ title: '暂不支持模拟试卷', content: message })
+      return
+    }
+    const currentSignature = generationSignature(this.data)
+    if (this.data.queueFull) {
+      this.setData({ statusType: 'error', statusMessage: `已有 ${MAX_ACTIVE_GENERATION_TASKS} 个任务生成中，请等其中一个完成后再试。` })
+      return
+    }
+    if (this.data.generationTasks.some(task => task.signature === currentSignature && isLockedTask(task))) {
+      this.setData({ ...buildSubmitPatch(this.data), statusType: 'success', statusMessage: '这份要求正在生成中，完成后会出现在最近生成。' })
+      return
+    }
+    let charge
+    try {
+      charge = await this.resolveGenerationCharge(prompt)
+    } catch (e) {
+      const message = e.message || '页数识别失败，请稍后再试。'
+      this.setData({ statusType: 'error', statusMessage: message })
+      modal.showMessage({ title: '无法生成', content: message, showCancel: false })
+      return
+    }
+    if (!charge) return
+    const needPoints = Number(charge.pointsRequired || billing.getGenerationPointCost(this.data.mode))
     if (Number(this.data.points || 0) < needPoints) {
       modal.showConfirm({ title: '点数不足', content: `本次生成需要 ${needPoints} 点，你当前剩余 ${this.data.points} 点。购买套餐或点数包后即可继续生成。`, confirmText: '购买', success: res => { if (res.confirm) this.goPackages() } })
       return
     }
     const taskMode = this.data.mode
     const generationPrompt = this.buildGenerationPrompt(prompt)
-    const currentSignature = generationSignature(this.data)
     if (this.data.generationTasks.some(task => task.signature === currentSignature && isLockedTask(task))) {
       this.setData({ ...buildSubmitPatch(this.data), statusType: 'success', statusMessage: '这份要求已加入生成队列，完成后会出现在最近生成。' })
       return
@@ -643,14 +811,14 @@ Page({
       const loadingPatch = { loading: true, duplicateGenerationLocked: true, statusType: 'loading', statusMessage: '正在创建生成任务，可离开页面，完成后会出现在最近生成。' }
       this.setData({ ...loadingPatch, ...buildSubmitPatch({ ...this.data, ...loadingPatch }) })
       try {
-        const data = await api.generateWorksheetAsync({ requestId, prompt: generationPrompt, grade: this.data.grade, subject: this.data.subject, difficulty: this.data.difficulty, mode: taskMode, questionCount: this.data.questionCount })
+        const data = await api.generateWorksheetAsync({ requestId, prompt: generationPrompt, grade: this.data.grade, subject: this.data.subject, difficulty: this.data.difficulty, mode: taskMode, questionCount: this.data.questionCount, estimatedPages: charge.estimatedPages, pointsRequired: charge.pointsRequired })
         const job = normalizeJob(data.job || data, { requestId, prompt, grade: this.data.grade, subject: this.data.subject, mode: taskMode, modeLabel: billing.getGenerationModeLabel(taskMode), questionCount: this.data.questionCount, status: 'queued', message: '正在生成，可离开页面，完成后会出现在最近生成。', signature: currentSignature })
         this.upsertGenerationTask(job)
         this.pollGenerationJob(job.jobId || job.id)
         if (job.status === 'succeeded') this.completeGenerationTask(job)
         this.setData({ statusType: 'success', statusMessage: '生成任务已创建，可离开页面，完成后会出现在最近生成。' })
       } catch (e) {
-        const failureMessage = formatGenerationFailureMessage(e.message || '生成任务创建失败')
+        const failureMessage = formatGenerationFailureWithPrompt(e.message || '生成任务创建失败', this.data, prompt)
         this.setData({ statusType: 'error', statusMessage: failureMessage })
         modal.showMessage({ title: '创建失败', content: failureMessage })
       } finally {
@@ -662,7 +830,7 @@ Page({
     }
     this.setData({ loading: true, statusType: 'loading', statusMessage: '正在生成练习卷，完成后将进入预览页。' })
     try {
-      const res = await api.generateWorksheet({ prompt: generationPrompt, filePath: this.data.filePath, fileName: this.data.fileName, fileType: this.data.fileTypeLabel, fileSize: this.data.fileSize, fileExtension: this.data.fileExtension, grade: this.data.grade, subject: this.data.subject, difficulty: this.data.difficulty, mode: taskMode, questionCount: this.data.questionCount })
+      const res = await api.generateWorksheet({ prompt: generationPrompt, filePath: this.data.filePath, fileName: this.data.fileName, fileType: this.data.fileTypeLabel, fileSize: this.data.fileSize, fileExtension: this.data.fileExtension, grade: this.data.grade, subject: this.data.subject, difficulty: this.data.difficulty, mode: taskMode, questionCount: this.data.questionCount, estimatedPages: charge.estimatedPages, pointsRequired: charge.pointsRequired })
       if (!res || !res.success) throw new Error((res && res.message) || '生成失败')
       const worksheet = res.worksheet || res.preview || res
       const pointsUsed = Number(res.pointsUsed || (res.cost && res.cost.pointsUsed) || needPoints)
@@ -672,7 +840,7 @@ Page({
       this.refreshBackendPoints()
       wx.navigateTo({ url: '/pages/preview/preview' })
     } catch (e) {
-      const failureMessage = formatGenerationFailureMessage(e.message || '生成失败')
+      const failureMessage = formatGenerationFailureWithPrompt(e.message || '生成失败', this.data, prompt)
       this.setData({ statusType: 'error', statusMessage: failureMessage })
       modal.showMessage({ title: '生成失败', content: failureMessage })
     } finally {

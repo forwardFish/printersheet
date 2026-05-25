@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import http from 'node:http'
+import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import PDFDocument from 'pdfkit'
@@ -11,19 +12,29 @@ import { Document, Packer, Paragraph, TextRun } from 'docx'
 import mammoth from 'mammoth'
 import JSZip from 'jszip'
 
+const require = createRequire(import.meta.url)
+const { buildDiagramView } = require('../../miniprogram/utils/math-format.js')
+const { sampleWorksheet } = require('../../miniprogram/utils/worksheet.js')
+const nativeFetch = globalThis.fetch
+
 process.env.NODE_ENV = 'test'
 process.env.PUBLIC_BASE_URL = 'http://127.0.0.1:8787'
-process.env.AI_MOCK_MODE = 'true'
-delete process.env.AI_API_KEY
+process.env.AI_MOCK_MODE = 'false'
+process.env.AI_API_KEY = 'unit-test-key'
+process.env.AI_BASE_URL = 'https://ai.example.test/v1'
 
 const { createApp } = await import('../src/index.js')
+const { LocalDbAdapter } = await import('../src/adapters/localDb.js')
+const { AuthService } = await import('../src/services/authService.js')
 const { normalizeWorksheet, pointsFor, validateWorksheet } = await import('../src/lib/worksheet.js')
 const { createMockWorksheet } = await import('../src/lib/mockWorksheet.js')
 const { assertAiWorksheetPayloadSchema, assertUploadedSourceUsage, assertWorksheetQuality, generateFullPaperWithAI, generateWorksheetWithAI } = await import('../src/lib/ai.js')
 const { resolveAiProvider } = await import('../src/lib/aiProviders.js')
+const { isFullPaperSimulation } = await import('../src/lib/examBlueprint.js')
 const { buildPdf, inferQuestionDiagramSpec } = await import('../src/lib/buildPdf.js')
 const { buildDocx } = await import('../src/lib/buildDocx.js')
 const { toDisplayChemistry, toDisplayMath } = await import('../src/lib/mathFormat.js')
+const { estimateGenerationCharge } = await import('../src/lib/meteredGeneration.js')
 
 async function cleanGeneratedFiles() {
   for (const dir of [path.resolve('files'), path.resolve('uploads')]) {
@@ -33,26 +44,95 @@ async function cleanGeneratedFiles() {
   }
 }
 
+function valueFromPrompt(content, label, fallback) {
+  const match = String(content || '').match(new RegExp(`- ${label}: ([^\\n]+)`))
+  const value = String(match?.[1] || '').trim()
+  return value && value !== 'unspecified' ? value : fallback
+}
+
+function sourceAnchorFromPrompt(content) {
+  const text = String(content || '')
+  const source = String(
+    text.match(/primary basis:\s*([\s\S]*?)(?:\n\nFull-paper simulation blueprint|\n\nPrevious response was invalid|$)/)?.[1] ||
+    text.match(/Uploaded source text:\s*([\s\S]*?)(?:\n\nFull-paper simulation blueprint|\n\nPrevious response was invalid|$)/)?.[1] ||
+    ''
+  ).trim()
+  if (!source || source === 'none') return ''
+  return source.replace(/\s+/g, ' ').slice(0, 40)
+}
+
+function createUnitAiWorksheet(content = '') {
+  const count = Math.max(1, Number(String(content).match(/Exact question count: (\d+)/)?.[1] || 5))
+  const grade = valueFromPrompt(content, 'Grade', 'Grade 7')
+  const subject = valueFromPrompt(content, 'Subject', 'Math')
+  const difficulty = valueFromPrompt(content, 'Difficulty', 'medium')
+  const anchor = sourceAnchorFromPrompt(content)
+  const request = String(content).match(/User request: ([^\n]+)/)?.[1] || ''
+  const requestHint = request.slice(0, 80)
+  return {
+    title: `${grade} ${subject} practice`,
+    grade,
+    subject,
+    mode: 'practice',
+    sourceAnchors: anchor ? [anchor] : [],
+    questions: Array.from({ length: count }, (_, index) => {
+      const number = index + 1
+      const a = number + 4
+      const b = number + 7
+      const answer = number + 2
+      const c = a * answer + b
+      return {
+        number,
+        section: 'Practice',
+        type: 'short answer',
+        difficulty,
+        skill: `${subject} ${requestHint} linear equation`,
+        question: `${anchor ? `${anchor}: ` : ''}${requestHint} ${subject} item ${number}: solve ${a}x + ${b} = ${c}.`,
+        options: [],
+        answer: `x=${answer}`,
+        explanation: `Subtract ${b}, then divide by ${a}.`
+      }
+    })
+  }
+}
+
+function installUnitAiFetch() {
+  globalThis.fetch = async (url, init) => {
+    if (String(url).startsWith('https://ai.example.test/v1/chat/completions')) {
+      const body = JSON.parse(init.body)
+      const userContent = body.messages?.find(message => message.role === 'user')?.content || ''
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: JSON.stringify(createUnitAiWorksheet(userContent)) } }]
+      }), { status: 200 })
+    }
+    return nativeFetch(url, init)
+  }
+}
+
 test.beforeEach(async () => {
-  process.env.AI_MOCK_MODE = 'true'
+  process.env.AI_MOCK_MODE = 'false'
   process.env.DB_PROVIDER = 'local'
   process.env.FILE_PROVIDER = 'local'
   process.env.PAYMENT_PROVIDER = 'mock'
+  process.env.AI_API_KEY = 'unit-test-key'
+  process.env.AI_BASE_URL = 'https://ai.example.test/v1'
   process.env.LOCAL_DB_PATH = path.join(os.tmpdir(), `printersheet-dev-db-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.json`)
-  delete process.env.AI_API_KEY
   delete process.env.AI_PROVIDER
-  delete process.env.DEEPSEEK_API_KEY
-  delete process.env.AI_BASE_URL
-  delete process.env.DEEPSEEK_BASE_URL
   delete process.env.AI_MODEL
+  delete process.env.DEEPSEEK_API_KEY
+  delete process.env.DEEPSEEK_BASE_URL
   delete process.env.DEEPSEEK_MODEL
   delete process.env.AI_FALLBACK_TO_MOCK
   delete process.env.AI_REQUEST_TIMEOUT_MS
   delete process.env.GENERATION_JOB_TIMEOUT_MS
   delete process.env.GENERATION_JOB_CONCURRENCY
+  installUnitAiFetch()
   await cleanGeneratedFiles()
 })
-test.afterEach(cleanGeneratedFiles)
+test.afterEach(async () => {
+  globalThis.fetch = nativeFetch
+  await cleanGeneratedFiles()
+})
 
 function listen(app) {
   return new Promise(resolve => {
@@ -119,11 +199,11 @@ async function makeSampleImage(tmpDir) {
   return file
 }
 
-async function uploadGenerate(url, filePath, fields) {
+async function uploadGenerate(url, filePath, fields, headers = {}) {
   const form = new FormData()
   for (const [key, value] of Object.entries(fields)) form.append(key, String(value))
   form.append('file', new Blob([await fsp.readFile(filePath)]), fields.uploadFileName || path.basename(filePath))
-  return fetch(url, { method: 'POST', body: form })
+  return fetch(url, { method: 'POST', body: form, headers })
 }
 
 async function waitForGenerationJob(base, jobId) {
@@ -240,12 +320,22 @@ test('async generation returns a job immediately and completes in background', a
   assert.equal(done.result.worksheet.questions.length, 5)
 })
 
-test('worksheet schema normalizes legacy mode and mock generator is stable', () => {
-  const worksheet = normalizeWorksheet(createMockWorksheet('生成 10 道初一数学一元一次方程中等题，带答案解析，适合打印。', {
+test('worksheet schema normalizes legacy mode without mock generator', () => {
+  const worksheet = normalizeWorksheet({
+    title: '结构化练习卷',
     mode: 'paper',
-    questionCount: 10
-  }))
-  assert.equal(worksheet.mode, 'exam_simulation')
+    questions: Array.from({ length: 10 }, (_, index) => ({
+      number: index + 1,
+      section: '一、练习题',
+      type: '解答题',
+      question: `第 ${index + 1} 题：计算 ${index + 11}+${index + 21}。`,
+      answer: String(index * 2 + 32),
+      explanation: '按整数加法计算。'
+    })),
+    cost: { pointsUsed: 10, ocrPages: 0, wordExportRequired: false },
+    paperBlueprint: { totalQuestions: 10, sections: [] }
+  })
+  assert.equal(worksheet.mode, 'practice')
   assert.equal(worksheet.questions.length, 10)
   assert.equal(worksheet.answerKey.length, 10)
   assert.equal(worksheet.paperBlueprint.totalQuestions, 10)
@@ -351,6 +441,76 @@ test('PDF and DOCX exports preserve existing preview diagram specs', async () =>
   assert.match(await zip.file('word/document.xml').async('string'), /<w:drawing>/)
 })
 
+test('mini-program geometry preview uses physical rpx geometry instead of distorted percentages', () => {
+  const view = buildDiagramView({
+    type: 'generic_geometry',
+    points: { A: [0, 0], B: [4, 0], C: [2, 3] },
+    segments: [['A', 'B'], ['B', 'C'], ['C', 'A']],
+    labels: [{ point: 'A', text: 'A' }, { point: 'B', text: 'B' }, { point: 'C', text: 'C' }]
+  })
+
+  assert.equal(view.type, 'geometry')
+  assert.equal(view.segments.length, 3)
+  assert.match(view.segments[0].style, /left:\d+(?:\.\d+)?rpx;top:\d+(?:\.\d+)?rpx;width:\d+(?:\.\d+)?rpx;transform:rotate\(0deg\);/)
+  assert.ok(view.segments.every(segment => !segment.style.includes('%')))
+  assert.ok(view.labels.every(label => !label.style.includes('%')))
+})
+
+test('mini-program preview accepts semantic geometry diagram specs', () => {
+  const view = buildDiagramView({
+    diagramType: 'ISOSCELES_TRIANGLE',
+    params: {
+      topPoint: 'A',
+      leftPoint: 'B',
+      rightPoint: 'C',
+      equalSides: [['A', 'B'], ['A', 'C']],
+      knownAngles: [{ point: 'B', value: '40\\circ' }]
+    }
+  })
+
+  assert.equal(view.type, 'geometry')
+  assert.equal(view.segments.length, 3)
+  assert.ok(view.angleLabels.some(item => item.text && !item.text.includes('\\circ')))
+  assert.ok(view.labels.every(label => label.style.includes('rpx')))
+})
+
+test('PDF and DOCX exports render a five-question semantic geometry sheet', async () => {
+  const worksheet = normalizeWorksheet({
+    title: 'semantic geometry sheet',
+    grade: 'Grade 7',
+    subject: 'Math',
+    mode: 'practice',
+    questions: [
+      ['TRIANGLE_ANGLE_SUM', { angles: { A: '50°', B: '60°', C: '?' } }],
+      ['ISOSCELES_TRIANGLE', { topPoint: 'A', leftPoint: 'B', rightPoint: 'C', knownAngles: [{ point: 'B', value: '40°' }] }],
+      ['RIGHT_TRIANGLE', { vertices: ['A', 'B', 'C'], rightAngleAt: 'C' }],
+      ['CONGRUENT_TRIANGLES', { leftTriangle: ['A', 'B', 'C'], rightTriangle: ['D', 'E', 'F'] }],
+      ['PARALLEL_LINES_ANGLE', { angles: [{ point: 'E', value: '∠1' }, { point: 'F', value: '∠2' }] }]
+    ].map(([diagramType, params], index) => ({
+      number: index + 1,
+      section: 'geometry',
+      type: 'short',
+      question: `Use the diagram for question ${index + 1}.`,
+      answer: 'ok',
+      explanation: 'The template renderer owns the diagram coordinates.',
+      needsDiagram: true,
+      diagramSpecRequired: true,
+      diagramSpec: { diagramType, params }
+    }))
+  })
+
+  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'printersheet-semantic-geometry-'))
+  const pdfPath = path.join(dir, 'semantic.pdf')
+  const docxPath = path.join(dir, 'semantic.docx')
+  await buildPdf({ worksheet, outputPath: pdfPath, watermark: false })
+  await buildDocx({ worksheet, outputPath: docxPath })
+
+  assert.ok((await fsp.stat(pdfPath)).size > 0)
+  const zip = await JSZip.loadAsync(await fsp.readFile(docxPath))
+  assert.ok(zip.file(/word\/media\/.*\.svg$/).length >= 4)
+  assert.equal(((await zip.file('word/document.xml').async('string')).match(/<w:drawing>/g) || []).length, 5)
+})
+
 test('PDF diagram inference does not use geometry fallback for algebra questions by number', () => {
   const spec = inferQuestionDiagramSpec({
     number: 5,
@@ -412,6 +572,7 @@ test('AI config uses explicit prompt, schema validation, and model env vars', as
     assert.equal(validateWorksheet(result.worksheet).valid, true)
   } finally {
     globalThis.fetch = originalFetch
+    delete process.env.AI_FALLBACK_TO_MOCK
   }
 })
 
@@ -455,7 +616,7 @@ test('AI retry includes schema failure reason before succeeding', async () => {
           choices: [{ message: { content: JSON.stringify({ title: 'Bad', questions: [] }) } }]
         }), { status: 200 })
       }
-      assert.match(body.messages[1].content, /上一次返回不合格/)
+      assert.match(body.messages[1].content, /Previous response was invalid/)
       assert.match(body.messages[1].content, /questions 数量必须等于 2/)
       return new Response(JSON.stringify({
         choices: [{
@@ -553,7 +714,7 @@ test('AI upload generation must cite and use parsed uploaded material', async ()
     globalThis.fetch = async (_, init) => {
       calls += 1
       const body = JSON.parse(init.body)
-      assert.equal(body.model, 'deepseek-v4-pro')
+      assert.equal(body.model, 'deepseek-chat')
       assert.match(body.messages[0].content, /sourceAnchors/)
       assert.match(body.messages[1].content, /上传资料原文/)
       if (calls === 1) {
@@ -603,6 +764,90 @@ test('AI upload generation must cite and use parsed uploaded material', async ()
     assert.equal(result.source, 'ai')
     assert.deepEqual(result.worksheet.sourceAnchors, ['合并同类项', '移项', '系数化为1'])
     assert.equal(calls, 2)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('long uploaded material is generated in chunks instead of one full prompt', async () => {
+  const originalFetch = globalThis.fetch
+  process.env.AI_MOCK_MODE = 'false'
+  process.env.AI_API_KEY = 'unit-test-key'
+  process.env.AI_BASE_URL = 'https://ai.example.test/v1'
+  process.env.AI_MODEL = 'unit-test-model'
+
+  const alphaText = 'alpha_anchor linear transformation practice '.repeat(70)
+  const betaText = 'beta_anchor proportional reasoning practice '.repeat(70)
+  const fileText = `${alphaText}\n\n${betaText}`
+  const userPrompt = 'generate Grade 7 Math worksheet from uploaded material'
+  const requestLengths = []
+  let calls = 0
+
+  try {
+    globalThis.fetch = async (_, init) => {
+      calls += 1
+      const body = JSON.parse(init.body)
+      const userContent = body.messages[1].content
+      requestLengths.push(userContent.length)
+      assert.match(userContent, /chunk \d+\/\d+/)
+      assert.ok(userContent.length < fileText.length, 'model call should not contain the whole uploaded text')
+      const isBeta = calls > 1
+      const anchor = isBeta ? 'beta_anchor' : 'alpha_anchor'
+      const skill = isBeta ? 'proportional reasoning' : 'linear transformation'
+      const offset = isBeta ? 3 : 1
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: JSON.stringify({
+          title: 'Grade 7 Math chunk worksheet',
+          grade: 'Grade 7',
+          subject: 'Math',
+          mode: 'practice',
+          sourceAnchors: [anchor],
+          questions: [
+            {
+              number: offset,
+              section: 'Practice',
+              type: 'short answer',
+              difficulty: 'medium',
+              skill,
+              question: `${anchor} question ${offset} for Grade 7 Math`,
+              options: [],
+              answer: `answer ${offset}`,
+              explanation: `${skill} explanation`
+            },
+            {
+              number: offset + 1,
+              section: 'Practice',
+              type: 'short answer',
+              difficulty: 'medium',
+              skill,
+              question: `${anchor} question ${offset + 1} for Grade 7 Math`,
+              options: [],
+              answer: `answer ${offset + 1}`,
+              explanation: `${skill} explanation`
+            }
+          ]
+        }) } }]
+      }), { status: 200 })
+    }
+
+    const result = await generateWorksheetWithAI({
+      prompt: userPrompt,
+      fileText,
+      grade: 'Grade 7',
+      subject: 'Math',
+      difficulty: 'medium',
+      mode: 'practice',
+      questionCount: 4
+    })
+
+    assert.equal(result.source, 'ai')
+    assert.equal(result.sourceChunks, 2)
+    assert.equal(calls, 2)
+    assert.equal(result.worksheet.questions.length, 4)
+    assert.deepEqual(result.worksheet.questions.map(item => item.number), [1, 2, 3, 4])
+    assert.ok(result.worksheet.sourceAnchors.includes('alpha_anchor'))
+    assert.ok(result.worksheet.sourceAnchors.includes('beta_anchor'))
+    assert.ok(requestLengths.every(length => length < fileText.length))
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -746,7 +991,7 @@ test('upload source usage gate rejects worksheets that ignore parsed material', 
   )
 })
 
-test('AI mock mode and invalid AI JSON fall back to mock worksheet', async () => {
+test('AI mock mode and fallback-to-mock are rejected', async () => {
   const originalFetch = globalThis.fetch
 
   process.env.AI_MOCK_MODE = 'true'
@@ -754,43 +999,59 @@ test('AI mock mode and invalid AI JSON fall back to mock worksheet', async () =>
   globalThis.fetch = async () => {
     throw new Error('fetch should not be called in AI_MOCK_MODE')
   }
-  const mockModeResult = await generateWorksheetWithAI({ prompt: 'mock mode', questionCount: 4 })
-  assert.equal(mockModeResult.source, 'mock')
-  assert.match(mockModeResult.fallbackReason, /AI_MOCK_MODE/)
-  assert.equal(mockModeResult.worksheet.questions.length, 4)
+  await assert.rejects(
+    () => generateWorksheetWithAI({ prompt: 'mock mode', questionCount: 4 }),
+    /AI_MOCK_MODE=true 已禁用/
+  )
 
-  let calls = 0
   process.env.AI_MOCK_MODE = 'false'
   process.env.AI_API_KEY = 'unit-test-key'
   process.env.AI_FALLBACK_TO_MOCK = 'true'
   globalThis.fetch = async () => {
-    calls += 1
-    return new Response(JSON.stringify({
-      choices: [{
-        message: {
-          content: JSON.stringify({
-            title: 'Bad worksheet',
-            mode: 'practice',
-            questions: [
-              { question: 'Only one question?', answer: 'Yes', explanation: 'Too short.' }
-            ]
-          })
-        }
-      }]
-    }), { status: 200 })
+    throw new Error('fetch should not be called when fallback-to-mock is enabled')
   }
   try {
-    const fallbackResult = await generateWorksheetWithAI({ prompt: 'fallback after invalid JSON', questionCount: 3 })
-    assert.equal(calls, 2)
-    assert.equal(fallbackResult.source, 'mock')
-    assert.match(fallbackResult.fallbackReason, /questions 数量/)
-    assert.equal(fallbackResult.worksheet.questions.length, 3)
-    assert.equal(validateWorksheet(fallbackResult.worksheet).valid, true)
+    await assert.rejects(
+      () => generateWorksheetWithAI({ prompt: 'fallback after invalid JSON', questionCount: 3 }),
+      /AI_FALLBACK_TO_MOCK=true 已禁用/
+    )
   } finally {
     globalThis.fetch = originalFetch
   }
 
   assert.throws(() => assertAiWorksheetPayloadSchema({ questions: [] }, { questionCount: 1 }), /questions 数量/)
+})
+
+test('worksheet mock factories no longer return demo questions', () => {
+  assert.throws(
+    () => createMockWorksheet('生成 5 道初一数学几何题，包含三角形和平行线角度，带答案解析。'),
+    /模拟出题已禁用/
+  )
+  assert.throws(
+    () => sampleWorksheet('几何', { grade: '初一', subject: '数学', questionCount: 4 }),
+    /模拟出题已禁用/
+  )
+})
+
+test('plain worksheet wording does not trigger full-paper simulation', () => {
+  assert.equal(isFullPaperSimulation({ mode: 'normal', prompt: '生成一份初一数学几何试卷，5 道题，带答案解析。' }), false)
+  assert.equal(isFullPaperSimulation({ mode: 'normal', prompt: '生成一份几何练习卷。' }), false)
+  assert.equal(isFullPaperSimulation({ mode: 'normal', prompt: '根据原卷同结构生成新题。' }), false)
+  assert.equal(isFullPaperSimulation({ mode: 'full_paper_simulation', prompt: '几何题' }), false)
+})
+
+test('full-paper simulation mode is disabled and plain worksheet is not charged as simulation', async () => {
+  await assert.rejects(
+    () => generateWorksheetWithAI({
+      prompt: '根据原卷同结构生成新题',
+      grade: '初一',
+      subject: '数学',
+      mode: 'full_paper_simulation',
+      questionCount: 10
+    }),
+    /整卷仿真\/模拟试卷功能已暂停/
+  )
+  assert.equal(pointsFor({ prompt: '生成一份初一数学几何试卷，5 道题', mode: 'normal', questionCount: 5 }), 1)
 })
 
 test('real AI mode does not silently fall back to demo worksheets', async () => {
@@ -847,7 +1108,7 @@ test('PDF and DOCX uploads generate worksheets and remove temporary uploads', as
   assert.equal(leftovers.length, 0)
 })
 
-test('full-paper simulation extracts 28-question blueprint from 初一数学.pdf', async t => {
+test('full-paper simulation upload is rejected while the feature is paused', async t => {
   const server = await listen(createApp())
   t.after(() => server.close())
   const sourcePdf = path.resolve('..', '..', 'docs', 'test', 'pdf', '初一数学.pdf')
@@ -859,25 +1120,10 @@ test('full-paper simulation extracts 28-question blueprint from 初一数学.pdf
     mode: 'full_paper_simulation',
     questionCount: 10
   })
-  assert.equal(res.status, 200)
+  assert.equal(res.status, 500)
   const data = await res.json()
-  assert.equal(data.success, true)
-  assert.equal(data.cost.pointsUsed, 10)
-  assert.equal(data.worksheet.mode, 'exam_simulation')
-  assert.equal(data.worksheet.questions.length, 28)
-  assert.equal(data.worksheet.paperBlueprint.totalQuestions, 28)
-  assert.equal(data.worksheet.sourceQuestionBlueprints.length, 28)
-  const typeCounts = data.worksheet.questions.reduce((acc, question) => {
-    if (question.type.includes('选择')) acc.choice += 1
-    if (question.type.includes('填空')) acc.blank += 1
-    if (question.type.includes('解答')) acc.solution += 1
-    return acc
-  }, { choice: 0, blank: 0, solution: 0 })
-  assert.deepEqual(typeCounts, { choice: 10, blank: 8, solution: 10 })
-  const pageCount = await getGeneratedPdfPageCount(data.pdfUrl)
-  assert.ok(pageCount >= 5 && pageCount <= 7, `full-paper PDF should be close to 6 pages, got ${pageCount}`)
-  const pdfText = await getGeneratedPdfExtractedText(data.pdfUrl)
-  assert.equal(pdfText.includes('答案与解析'), false, 'exam simulation PDF should default to student paper without answer page')
+  assert.equal(data.success, false)
+  assert.match(data.message, /整卷仿真|full_paper_simulation|simulation/)
 })
 
 test('image upload uses parser placeholder and unsupported uploads are rejected', async t => {
@@ -1050,8 +1296,8 @@ test('points policy and frontend secret guard are enforced', async () => {
   assert.equal(pointsFor({ prompt: '普通练习', mode: 'practice', questionCount: 10 }), 2)
   assert.equal(pointsFor({ prompt: '普通练习', mode: 'extended', questionCount: 10 }), 2)
   assert.equal(pointsFor({ prompt: '错题同类题', mode: 'wrong_question_similar', questionCount: 10 }), 2)
-  assert.equal(pointsFor({ prompt: '上传资料', mode: 'upload_material', questionCount: 10 }), 3)
-  assert.equal(pointsFor({ prompt: '上传试卷整卷仿真', mode: 'full_paper_simulation', questionCount: 10 }), 10)
+  assert.equal(pointsFor({ prompt: '上传资料', mode: 'upload_material', questionCount: 10 }), 2)
+  assert.equal(pointsFor({ prompt: '上传试卷整卷仿真', mode: 'full_paper_simulation', questionCount: 10 }), 2)
 
   const miniProgramRoot = path.resolve('..', 'miniprogram')
   const files = await collectFiles(miniProgramRoot)
@@ -1088,19 +1334,24 @@ test('generation estimate and me endpoints expose V1 entitlement contract', asyn
   const server = await listen(createApp())
   t.after(() => server.close())
 
+  const session = await login(baseUrl(server), 'me-contract-user')
   const estimate = await postJson(`${baseUrl(server)}/api/generation/estimate`, {
-    mode: 'full_paper_simulation',
-    pointsBalance: 3
-  })
+    mode: 'upload_material',
+    prompt: 'x'.repeat(1601)
+  }, session.auth)
   assert.equal(estimate.status, 200)
   assert.deepEqual(await estimate.json(), {
-    mode: 'full_paper_simulation',
-    pointsRequired: 10,
-    pointsBalance: 3,
-    canGenerate: false
+    success: true,
+    mode: 'upload_material',
+    estimatedPages: 3,
+    pointsRequired: 6,
+    source: 'text',
+    confidence: 'estimated',
+    textLength: 1601,
+    maxPages: 6,
+    metered: true
   })
 
-  const session = await login(baseUrl(server), 'me-contract-user')
   const orderRes = await postJson(`${baseUrl(server)}/api/orders/create`, { productCode: 'pro_monthly' }, session.auth)
   const order = (await orderRes.json()).order
   await postJson(`${baseUrl(server)}/api/dev/pay/mock-success`, { orderNo: order.orderNo }, session.auth)
@@ -1113,6 +1364,100 @@ test('generation estimate and me endpoints expose V1 entitlement contract', asyn
   assert.equal(data.isPaid, true)
   assert.equal(data.canDownloadWord, true)
   assert.equal(data.canRemoveWatermark, true)
+})
+
+test('metered page estimate treats images as one page and rejects oversized pasted text', async () => {
+  const imageCharge = await estimateGenerationCharge({
+    mode: 'upload_material',
+    prompt: 'generate from this picture',
+    file: { originalname: 'worksheet-photo.png', mimetype: 'image/png' },
+    meta: { fileExtension: 'png', fileType: 'image' }
+  })
+  assert.equal(imageCharge.estimatedPages, 1)
+  assert.equal(imageCharge.pointsRequired, 2)
+  assert.equal(imageCharge.source, 'image')
+
+  const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'printersheet-word-pages-'))
+  const docxPath = path.join(tmpDir, 'paged.docx')
+  const doc = new Document({
+    sections: [{
+      children: [new Paragraph({ children: [new TextRun('Word material with stored page metadata.')] })]
+    }]
+  })
+  const zip = await JSZip.loadAsync(await Packer.toBuffer(doc))
+  zip.file('docProps/app.xml', [
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+    '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties">',
+    '<Pages>6</Pages>',
+    '</Properties>'
+  ].join(''))
+  await fsp.writeFile(docxPath, await zip.generateAsync({ type: 'nodebuffer' }))
+  const wordCharge = await estimateGenerationCharge({
+    mode: 'upload_material',
+    file: { path: docxPath, originalname: 'paged.docx', mimetype: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
+    meta: { fileExtension: 'docx', fileType: 'Word' }
+  })
+  assert.equal(wordCharge.estimatedPages, 6)
+  assert.equal(wordCharge.pointsRequired, 12)
+  assert.equal(wordCharge.source, 'word')
+  assert.equal(wordCharge.confidence, 'exact')
+
+  const oldDocPath = path.join(tmpDir, 'legacy.doc')
+  await fsp.writeFile(oldDocPath, 'not a docx zip')
+  await assert.rejects(
+    () => estimateGenerationCharge({
+      mode: 'upload_material',
+      file: { path: oldDocPath, originalname: 'legacy.doc', mimetype: 'application/msword' },
+      meta: { fileExtension: 'doc', fileType: 'Word' }
+    }),
+    error => error.code === 'WORD_PARSE_FAILED' && /docx/.test(error.message)
+  )
+
+  const brokenDocxPath = path.join(tmpDir, 'broken.docx')
+  await fsp.writeFile(brokenDocxPath, 'not a zip either')
+  await assert.rejects(
+    () => estimateGenerationCharge({
+      mode: 'upload_material',
+      file: { path: brokenDocxPath, originalname: 'broken.docx', mimetype: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
+      meta: { fileExtension: 'docx', fileType: 'Word' }
+    }),
+    error => error.code === 'WORD_PARSE_FAILED' && /Word 文件无法识别/.test(error.message)
+  )
+  await fsp.rm(tmpDir, { recursive: true, force: true })
+
+  await assert.rejects(
+    () => estimateGenerationCharge({
+      mode: 'upload_material',
+      prompt: 'long pasted source '.repeat(260)
+    }),
+    error => error.code === 'METERED_PAGE_LIMIT_EXCEEDED' && error.maxPages === 6
+  )
+})
+
+test('authed generation estimate accepts WeChat image temp names without extension', async t => {
+  const server = await listen(createApp())
+  t.after(() => server.close())
+  const base = baseUrl(server)
+  const session = await login(base, 'wechat-image-estimate-user')
+  const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'printersheet-wechat-image-'))
+  t.after(() => fsp.rm(tmpDir, { recursive: true, force: true }))
+  const imagePath = path.join(tmpDir, '_cgi-bin_mmwebwx-bin_webwxgetmsgimg')
+  await fsp.writeFile(imagePath, Buffer.from('wechat temp image placeholder'))
+
+  const res = await uploadGenerate(`${base}/api/generation/estimate`, imagePath, {
+    uploadFileName: '_cgi-bin_mmwebwx-bin_webwxgetmsgimg',
+    prompt: '',
+    mode: 'upload_material',
+    fileName: '_cgi-bin_mmwebwx-bin_webwxgetmsgimg',
+    fileType: 'image',
+    fileExtension: 'jpg'
+  }, session.auth)
+  assert.equal(res.status, 200)
+  const data = await res.json()
+  assert.equal(data.success, true)
+  assert.equal(data.estimatedPages, 1)
+  assert.equal(data.pointsRequired, 2)
+  assert.equal(data.source, 'image')
 })
 
 test('phase 1 login creates local user account and grants initial points once', async t => {
@@ -1136,12 +1481,87 @@ test('phase 1 login creates local user account and grants initial points once', 
   assert.equal(persisted.point_ledger.filter(item => item.source === 'new_user_bonus').length, 1)
 })
 
+test('real WeChat login exchanges wx code for openid and keeps session key server-side', async () => {
+  const db = new LocalDbAdapter(process.env.LOCAL_DB_PATH)
+  const authService = new AuthService({
+    db,
+    env: {
+      nodeEnv: 'production',
+      authSecret: 'unit-auth-secret',
+      wechatAppId: 'wx-real-app',
+      wechatAppSecret: 'real-secret'
+    },
+    fetchImpl: async url => {
+      assert.equal(url.searchParams.get('appid'), 'wx-real-app')
+      assert.equal(url.searchParams.get('secret'), 'real-secret')
+      assert.equal(url.searchParams.get('js_code'), 'wx-login-code')
+      assert.equal(url.searchParams.get('grant_type'), 'authorization_code')
+      return new Response(JSON.stringify({
+        openid: 'real-openid-001',
+        unionid: 'real-union-001',
+        session_key: 'server-only-session-key'
+      }), { status: 200 })
+    }
+  })
+
+  const first = await authService.login({
+    code: 'wx-login-code',
+    userInfo: { nickName: 'Real User', avatarUrl: 'https://example.test/real.png' }
+  })
+  assert.equal(first.firstLogin, true)
+  assert.equal(first.user.openid, 'real-openid-001')
+  assert.equal(first.user.unionid, 'real-union-001')
+  assert.equal(first.user.sessionKey, undefined)
+  assert.ok(first.token)
+
+  const persisted = JSON.parse(await fsp.readFile(process.env.LOCAL_DB_PATH, 'utf8'))
+  assert.equal(persisted.users.length, 1)
+  assert.equal(persisted.users[0].openid, 'real-openid-001')
+  assert.equal(persisted.users[0].sessionKey, 'server-only-session-key')
+  assert.equal(persisted.point_accounts[0].balance, 3)
+  assert.equal(persisted.point_ledger.filter(item => item.source === 'new_user_bonus').length, 1)
+})
+
 test('phase 1 protected APIs require token', async t => {
   const server = await listen(createApp())
   t.after(() => server.close())
 
   const res = await fetch(`${baseUrl(server)}/api/points`)
   assert.equal(res.status, 401)
+})
+
+test('daily share reward persists one log per user date and channel', async t => {
+  const server = await listen(createApp())
+  t.after(() => server.close())
+  const base = baseUrl(server)
+  const session = await login(base, 'daily-share-user')
+
+  const firstRes = await postJson(`${base}/api/rewards/daily-share`, { channel: 'timeline' }, session.auth)
+  assert.equal(firstRes.status, 200)
+  const first = await firstRes.json()
+  assert.equal(first.success, true)
+  assert.equal(first.claimed, true)
+  assert.equal(first.pointsAdded, 1)
+  assert.equal(first.pointsBalance, 4)
+  assert.equal(first.rewardLog.userId, session.user.id)
+  assert.equal(first.rewardLog.channel, 'timeline')
+  assert.match(first.rewardLog.rewardDate, /^\d{4}-\d{2}-\d{2}$/)
+
+  const secondRes = await postJson(`${base}/api/rewards/daily-share`, { channel: 'timeline' }, session.auth)
+  assert.equal(secondRes.status, 200)
+  const second = await secondRes.json()
+  assert.equal(second.success, true)
+  assert.equal(second.claimed, false)
+  assert.equal(second.code, 'ALREADY_CLAIMED')
+  assert.equal(second.pointsAdded, 0)
+  assert.equal(second.pointsBalance, 4)
+
+  const persisted = JSON.parse(await fsp.readFile(process.env.LOCAL_DB_PATH, 'utf8'))
+  assert.equal(persisted.share_reward_logs.length, 1)
+  assert.equal(persisted.share_reward_logs[0].userId, session.user.id)
+  assert.equal(persisted.share_reward_logs[0].channel, 'timeline')
+  assert.equal(persisted.point_accounts.find(item => item.userId === session.user.id).balance, 4)
+  assert.equal(persisted.point_ledger.filter(item => item.source === 'daily_share').length, 1)
 })
 
 test('phase 1 orders and mock payments are idempotent', async t => {
@@ -1154,6 +1574,9 @@ test('phase 1 orders and mock payments are idempotent', async t => {
   assert.equal(createRes.status, 200)
   const created = await createRes.json()
   assert.equal(created.order.status, 'pending')
+  assert.equal(created.order.amountCents, 1)
+  assert.equal(created.order.originalAmountCents, 990)
+  assert.equal(created.order.paymentTestMode, true)
 
   const payRes = await postJson(`${base}/api/dev/pay/mock-success`, { orderNo: created.order.orderNo }, session.auth)
   assert.equal(payRes.status, 200)
@@ -1164,6 +1587,27 @@ test('phase 1 orders and mock payments are idempotent', async t => {
   await postJson(`${base}/api/dev/pay/mock-success`, { orderNo: created.order.orderNo }, session.auth)
   points = await (await fetch(`${base}/api/points`, { headers: session.auth })).json()
   assert.equal(points.pointsBalance, 28)
+})
+
+test('paid users can upgrade plans or buy point packs but cannot repurchase current or lower plans', async t => {
+  const server = await listen(createApp())
+  t.after(() => server.close())
+  const base = baseUrl(server)
+  const session = await login(base, 'plan-upgrade-user')
+
+  const starterRes = await postJson(`${base}/api/orders/create`, { productCode: 'starter_monthly' }, session.auth)
+  assert.equal(starterRes.status, 200)
+  const starter = await starterRes.json()
+  await postJson(`${base}/api/dev/pay/mock-success`, { orderNo: starter.order.orderNo }, session.auth)
+
+  const repeatStarter = await postJson(`${base}/api/orders/create`, { productCode: 'starter_monthly' }, session.auth)
+  assert.equal(repeatStarter.status, 409)
+
+  const upgradePro = await postJson(`${base}/api/orders/create`, { productCode: 'pro_monthly' }, session.auth)
+  assert.equal(upgradePro.status, 200)
+
+  const pack = await postJson(`${base}/api/orders/create`, { productCode: 'small_pack' }, session.auth)
+  assert.equal(pack.status, 200)
 })
 
 test('phase 1 worksheet generation deducts points, persists records and is requestId idempotent', async t => {
@@ -1317,8 +1761,8 @@ test('phase 1 worksheet generation blocks insufficient points and refunds failed
 
   const insufficient = await postJson(`${base}/api/worksheets/generate`, {
     requestId: 'too-expensive',
-    prompt: 'full paper',
-    mode: 'full_paper_simulation',
+    prompt: 'x'.repeat(1601),
+    mode: 'upload_material',
     questionCount: 10
   }, session.auth)
   assert.equal(insufficient.status, 402)
@@ -1333,7 +1777,7 @@ test('phase 1 worksheet generation blocks insufficient points and refunds failed
     questionCount: 5
   }, session.auth)
   assert.equal(failed.status, 500)
-  process.env.AI_MOCK_MODE = 'true'
+  process.env.AI_MOCK_MODE = 'false'
 
   const points = await (await fetch(`${base}/api/points`, { headers: session.auth })).json()
   assert.equal(points.pointsBalance, 3)

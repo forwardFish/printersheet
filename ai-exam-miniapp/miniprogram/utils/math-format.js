@@ -218,7 +218,119 @@ function buildNumberLineView(spec = {}) {
   return { type: 'number_line', ticks, labels }
 }
 
+function semanticTypeOf(spec = {}) {
+  return String(spec.diagramType || spec.templateType || '').trim().toUpperCase()
+}
+
+function pointLabel(value, fallback) {
+  const text = String(value || '').trim()
+  return /^[A-Za-z][A-Za-z0-9]?$/.test(text) ? text : fallback
+}
+
+function safeAngleLabel(value) {
+  return displayMathSymbols(String(value || '').replace(/\\circ\b/g, '°').replace(/\^°/g, '°'))
+}
+
+function labelOffset(point, text, offset) {
+  return { point, label: text || point, offset: Array.isArray(offset) ? offset : [0, 0] }
+}
+
+function semanticAngles(params = {}, vertices = []) {
+  const source = params.angles || params.knownAngles || {}
+  if (Array.isArray(source)) {
+    return source.map(item => ({
+      point: pointLabel(item.point || item.vertex, ''),
+      label: safeAngleLabel(item.value || item.label || item.text)
+    })).filter(item => item.point && item.label)
+  }
+  return Object.entries(source)
+    .map(([point, value]) => ({ point: pointLabel(point, ''), label: safeAngleLabel(value) }))
+    .filter(item => item.point && item.label && vertices.includes(item.point))
+}
+
+function resolveSemanticDiagramSpec(spec = {}) {
+  const diagramType = semanticTypeOf(spec)
+  const params = spec.params || {}
+  if (diagramType === 'TRIANGLE_ANGLE_SUM') {
+    const vertices = (Array.isArray(params.vertices) ? params.vertices : ['A', 'B', 'C']).map((value, index) => pointLabel(value, ['A', 'B', 'C'][index]))
+    const [a, b, c] = vertices
+    return {
+      ...spec,
+      type: 'generic_geometry',
+      points: { [a]: [160, 24], [b]: [36, 142], [c]: [284, 142] },
+      segments: [[a, b], [b, c], [c, a]],
+      labels: [labelOffset(a, a, [-12, -10]), labelOffset(b, b, [12, 8]), labelOffset(c, c, [-12, 8])],
+      angleLabels: semanticAngles(params, vertices)
+    }
+  }
+  if (diagramType === 'ISOSCELES_TRIANGLE') {
+    const a = pointLabel(params.topPoint || params.apex || params.vertices?.[0], 'A')
+    const b = pointLabel(params.leftPoint || params.baseLeft || params.vertices?.[1], 'B')
+    const c = pointLabel(params.rightPoint || params.baseRight || params.vertices?.[2], 'C')
+    return {
+      ...spec,
+      type: 'generic_geometry',
+      points: { [a]: [160, 22], [b]: [52, 146], [c]: [268, 146] },
+      segments: [[a, b], [b, c], [c, a]],
+      labels: [labelOffset(a, a, [-12, -10]), labelOffset(b, b, [12, 8]), labelOffset(c, c, [-12, 8])],
+      equalMarks: params.equalSides || [[a, b], [a, c]],
+      angleLabels: semanticAngles(params, [a, b, c])
+    }
+  }
+  if (diagramType === 'RIGHT_TRIANGLE') {
+    const vertices = (Array.isArray(params.vertices) ? params.vertices : ['A', 'B', 'C']).map((value, index) => pointLabel(value, ['A', 'B', 'C'][index]))
+    const [a, b, c] = vertices
+    return {
+      ...spec,
+      type: 'generic_geometry',
+      points: { [a]: [56, 142], [b]: [272, 142], [c]: [56, 34] },
+      segments: [[a, b], [b, c], [c, a]],
+      labels: [labelOffset(a, a, [-12, 8]), labelOffset(b, b, [12, 8]), labelOffset(c, c, [-12, -10])],
+      rightAngleMarks: [{ vertex: pointLabel(params.rightAngleAt || params.rightAngle || c, c) }],
+      angleLabels: semanticAngles(params, vertices)
+    }
+  }
+  if (diagramType === 'CONGRUENT_TRIANGLES') {
+    const left = (Array.isArray(params.leftTriangle) ? params.leftTriangle : ['A', 'B', 'C']).map((value, index) => pointLabel(value, ['A', 'B', 'C'][index]))
+    const right = (Array.isArray(params.rightTriangle) ? params.rightTriangle : ['D', 'E', 'F']).map((value, index) => pointLabel(value, ['D', 'E', 'F'][index]))
+    const [a, b, c] = left
+    const [d, e, f] = right
+    return {
+      ...spec,
+      type: 'congruent_triangles',
+      points: { [a]: [34, 142], [b]: [132, 142], [c]: [78, 42], [d]: [188, 142], [e]: [286, 142], [f]: [232, 42] },
+      segments: [[a, b], [b, c], [c, a], [d, e], [e, f], [f, d]],
+      labels: [...left, ...right],
+      equalMarks: params.equalSides || [[a, b], [d, e], [b, c], [e, f]],
+      angleLabels: semanticAngles(params, [...left, ...right])
+    }
+  }
+  if (diagramType === 'PARALLEL_LINES_ANGLE') {
+    const names = Array.isArray(params.points) && params.points.length >= 6
+      ? params.points.map((value, index) => pointLabel(value, ['A', 'B', 'C', 'D', 'E', 'F'][index]))
+      : ['A', 'B', 'C', 'D', 'E', 'F']
+    const [a, b, c, d, e, f] = names
+    return {
+      ...spec,
+      type: 'parallel_lines',
+      points: { [a]: [36, 52], [b]: [284, 52], [c]: [36, 132], [d]: [284, 132], [e]: [112, 18], [f]: [210, 166] },
+      segments: [[a, b], [c, d], [e, f]],
+      labels: names,
+      parallelMarks: [[a, b], [c, d]],
+      angleLabels: Array.isArray(params.angles)
+        ? params.angles.map((item, index) => ({ point: pointLabel(item.point || item.vertex || [e, f][index] || e, [e, f][index] || e), label: safeAngleLabel(item.value || item.label || item.text || `∠${index + 1}`) }))
+        : semanticAngles(params, names)
+    }
+  }
+  return spec
+}
+
 function buildGeometryView(spec = {}) {
+  spec = resolveSemanticDiagramSpec(spec)
+  const boxWidth = 360
+  const boxHeight = 240
+  const paddingX = 28
+  const paddingY = 24
   const points = spec.points && typeof spec.points === 'object' ? spec.points : {}
   const entries = Object.entries(points)
     .filter(([, point]) => Array.isArray(point) && point.length >= 2)
@@ -231,11 +343,18 @@ function buildGeometryView(spec = {}) {
   const maxY = Math.max(...entries.map(point => point.y))
   const width = Math.max(1, maxX - minX)
   const height = Math.max(1, maxY - minY)
+  const innerWidth = boxWidth - paddingX * 2
+  const innerHeight = boxHeight - paddingY * 2
+  const scale = Math.min(innerWidth / width, innerHeight / height)
+  const drawingWidth = width * scale
+  const drawingHeight = height * scale
+  const originX = paddingX + (innerWidth - drawingWidth) / 2
+  const originY = paddingY + (innerHeight - drawingHeight) / 2
   const normalized = {}
   entries.forEach(point => {
     normalized[point.name] = {
-      x: 8 + ((point.x - minX) / width) * 84,
-      y: 10 + ((point.y - minY) / height) * 78
+      x: originX + (point.x - minX) * scale,
+      y: originY + (point.y - minY) * scale
     }
   })
   const segmentPair = value => {
@@ -261,28 +380,34 @@ function buildGeometryView(spec = {}) {
     const angle = Math.atan2(dy, dx) * 180 / Math.PI
     return {
       id: `${index}`,
-      style: `left:${a.x}%;top:${a.y}%;width:${length}%;transform:rotate(${angle}deg);`
+      style: `left:${a.x}rpx;top:${a.y}rpx;width:${length}rpx;transform:rotate(${angle}deg);`
     }
   }
   const rawSegments = (Array.isArray(spec.segments) ? spec.segments : [])
     .map(segmentPair)
     .filter(pair => pair && normalized[pair[0]] && normalized[pair[1]])
   const segments = rawSegments.map(segmentStyle)
-  const labelNames = Array.isArray(spec.labels) && spec.labels.length
-    ? spec.labels.map(item => typeof item === 'string' ? item : String(item.point || item.name || item.label || '').trim()).filter(Boolean)
-    : entries.map(point => point.name)
-  const labels = labelNames.filter(name => normalized[name]).map(name => {
-    const pos = normalized[name]
-    return { id: name, label: name, style: `left:${pos.x}%;top:${pos.y}%;` }
+  const labelItems = Array.isArray(spec.labels) && spec.labels.length
+    ? spec.labels.map((item, index) => {
+      if (typeof item === 'string') return { id: item, point: item, label: item }
+      const point = String(item.point || item.name || item.id || '').trim()
+      const label = String(item.text || item.label || item.name || item.point || '').trim()
+      return { id: `${point || label}-${index}`, point, label, offset: item.offset }
+    }).filter(item => item.point && item.label)
+    : entries.map(point => ({ id: point.name, point: point.name, label: point.name }))
+  const labels = labelItems.filter(item => normalized[item.point]).map(item => {
+    const pos = normalized[item.point]
+    const offset = Array.isArray(item.offset) ? item.offset : [0, 0]
+    return { id: item.id, label: item.label, style: `left:${pos.x + Number(offset[0] || 0)}rpx;top:${pos.y + Number(offset[1] || 0)}rpx;` }
   })
   const marks = []
   ;(Array.isArray(spec.perpendicularMarks) ? spec.perpendicularMarks : []).forEach((mark, index) => {
     const at = String(mark.at || mark.vertex || mark.intersection || '').trim()
-    if (at && normalized[at]) marks.push({ id: `perp-${index}`, style: `left:${normalized[at].x}%;top:${normalized[at].y}%;` })
+    if (at && normalized[at]) marks.push({ id: `perp-${index}`, style: `left:${normalized[at].x}rpx;top:${normalized[at].y}rpx;` })
   })
   ;(Array.isArray(spec.rightAngleMarks) ? spec.rightAngleMarks : []).forEach((mark, index) => {
     const at = String(mark.vertex || '').trim()
-    if (at && normalized[at]) marks.push({ id: `right-${index}`, style: `left:${normalized[at].x}%;top:${normalized[at].y}%;` })
+    if (at && normalized[at]) marks.push({ id: `right-${index}`, style: `left:${normalized[at].x}rpx;top:${normalized[at].y}rpx;` })
   })
   const lengthLabels = (Array.isArray(spec.lengthLabels) ? spec.lengthLabels : [])
     .map((item, index) => {
@@ -293,15 +418,27 @@ function buildGeometryView(spec = {}) {
       return {
         id: `${index}`,
         text: displayMathSymbols(item.label || item.value || item.text || ''),
-        style: `left:${(a.x + b.x) / 2}%;top:${(a.y + b.y) / 2}%;`
+        style: `left:${(a.x + b.x) / 2}rpx;top:${(a.y + b.y) / 2}rpx;`
       }
     })
     .filter(Boolean)
-  return segments.length ? { type: 'geometry', segments, labels, marks, lengthLabels } : null
+  const angleLabels = (Array.isArray(spec.angleLabels) ? spec.angleLabels : [])
+    .map((item, index) => {
+      const at = String(item.point || item.vertex || '').trim()
+      if (!at || !normalized[at]) return null
+      return {
+        id: `angle-${index}`,
+        text: safeAngleLabel(item.label || item.value || item.text || ''),
+        style: `left:${normalized[at].x + 18}rpx;top:${normalized[at].y + 18}rpx;`
+      }
+    })
+    .filter(item => item && item.text)
+  return segments.length ? { type: 'geometry', segments, labels, marks, lengthLabels, angleLabels } : null
 }
 
 function buildDiagramView(spec) {
   if (!spec || typeof spec !== 'object' || Array.isArray(spec)) return null
+  spec = resolveSemanticDiagramSpec(spec)
   if (spec.type === 'number_line') return buildNumberLineView(spec)
   return buildGeometryView(spec)
 }

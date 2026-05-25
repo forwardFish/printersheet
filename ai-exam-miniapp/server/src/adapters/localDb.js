@@ -7,6 +7,7 @@ const EMPTY_STATE = {
   point_ledger: [],
   orders: [],
   memberships: [],
+  share_reward_logs: [],
   generation_jobs: [],
   worksheet_records: [],
   file_objects: []
@@ -95,6 +96,22 @@ export class LocalDbAdapter {
   findOrderByOrderNo(orderNo) {
     const order = this.state.orders.find(item => item.orderNo === orderNo)
     return order ? clone(order) : null
+  }
+
+  findShareRewardLog({ userId, rewardDate, channel }) {
+    const record = this.state.share_reward_logs.find(item =>
+      item.userId === userId &&
+      item.rewardDate === rewardDate &&
+      item.channel === channel
+    )
+    return record ? clone(record) : null
+  }
+
+  createShareRewardLogIfAbsent(record) {
+    const existing = this.findShareRewardLog(record)
+    if (existing) return { created: false, record: existing }
+    const item = this.create('share_reward_logs', record)
+    return { created: true, record: item }
   }
 
   findWorksheetByRequestId(userId, requestId) {

@@ -40,6 +40,18 @@ export const POINT_PACKS = [
   { id: 'large_pack', name: '大加量包', productType: 'point_pack', billing: 'once', price: '29.9', points: 100, memberName: '大加量包', benefits: ['立即到账 100 点', '不改变当前套餐'] }
 ]
 
+export const PLAN_RANK = {
+  free: 0,
+  starter: 1,
+  pro: 2,
+  teacher: 3,
+  standard: 2
+}
+
+export function getPlanRank(planCode = 'free') {
+  return PLAN_RANK[String(planCode || 'free')] || 0
+}
+
 export function getPlansByBilling() {
   return {
     month: PRICING_PLANS,

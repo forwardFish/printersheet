@@ -10,14 +10,19 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding-left: 32rpx;
 }
 
 .title {
-  font-size: 34rpx;
-  font-weight: 900;
+  font-size: var(--font-section);
+  font-weight: var(--weight-bold);
   color: #171923;
   letter-spacing: 0;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
 }
 
 .back {
@@ -88,8 +93,8 @@
   left: 78rpx;
   top: 28rpx;
   color: #000;
-  font-size: 32rpx;
-  font-weight: 800;
+  font-size: var(--font-title);
+  font-weight: var(--weight-bold);
   z-index: 2;
 }
 
@@ -151,7 +156,7 @@
 }
 
 .title {
-  font-size: 34rpx;
+  font-size: var(--font-section);
   line-height: 44rpx;
 }
 

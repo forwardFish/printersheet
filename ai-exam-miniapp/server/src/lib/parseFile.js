@@ -25,14 +25,28 @@ function effectiveExtension(file, meta = {}) {
   return ''
 }
 
+function wordParseError(message = 'Word 文件无法识别。请上传 .docx 格式的 Word 文档，或先用 Word/WPS 另存为 .docx 后重试。') {
+  const error = new Error(message)
+  error.statusCode = 400
+  error.code = 'WORD_PARSE_FAILED'
+  return error
+}
+
 export async function parseUploadedFile(file, meta = {}) {
   if (!file) return ''
   const ext = effectiveExtension(file, meta)
   const buffer = await fs.readFile(file.path)
   try {
-    if (ext === '.docx' || ext === '.doc') {
-      const result = await mammoth.extractRawText({ buffer })
-      return result.value || ''
+    if (ext === '.doc') {
+      throw wordParseError('暂不支持 .doc 老版 Word 格式。请先用 Word/WPS 另存为 .docx 后再上传。')
+    }
+    if (ext === '.docx') {
+      try {
+        const result = await mammoth.extractRawText({ buffer })
+        return result.value || ''
+      } catch {
+        throw wordParseError()
+      }
     }
     if (ext === '.pdf') {
       const parser = new PDFParse({ data: buffer })

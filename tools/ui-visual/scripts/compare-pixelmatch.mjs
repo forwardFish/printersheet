@@ -4,9 +4,13 @@ import { fileURLToPath } from 'node:url'
 import pixelmatch from 'pixelmatch'
 import { PNG } from 'pngjs'
 import sharp from 'sharp'
-import { assetTargets, defaultRound, pageTargets, pendingTargets, repoRoot, thresholds } from './visual-targets.mjs'
+import { defaultRound, getAssetTargets, getCandidate, getCandidateId, getPageTargets, pendingTargets, repoRoot, thresholds } from './visual-targets.mjs'
 
 const root = fileURLToPath(repoRoot)
+const candidateId = getCandidateId()
+const candidate = getCandidate(candidateId)
+const pageTargets = getPageTargets(candidateId)
+const assetTargets = getAssetTargets(candidateId)
 const round = process.env.UI_ROUND || defaultRound
 const outputRoot = path.join(root, 'docs', 'UI', '小程序', '复刻对比', round)
 const captureSummaryPath = path.join(outputRoot, 'capture-summary.json')
@@ -114,6 +118,10 @@ async function main() {
       ? 'PASS'
       : (pageCaptureComplete ? 'REPAIR_REQUIRED' : 'BLOCKED_BY_ENVIRONMENT'),
     generatedAt: new Date().toISOString(),
+    candidate: {
+      id: candidate.id,
+      label: candidate.label
+    },
     round,
     thresholds,
     expectedPageCaptures: pageTargets.length,

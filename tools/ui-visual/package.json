@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "capture": "node scripts/capture-wechat.mjs",
+    "capture:static": "node scripts/import-static-previews.mjs",
     "compare": "node scripts/compare-pixelmatch.mjs",
+    "compare:candidates": "node scripts/compare-candidates.mjs",
     "verify": "node scripts/capture-wechat.mjs && node scripts/compare-pixelmatch.mjs"
   },
   "dependencies": {

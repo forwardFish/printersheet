@@ -1,16 +1,29 @@
 <view class="safe-page my-page">
   <nav-bar title="我的"></nav-bar>
   <view class="container my-container">
-    <view class="user-box" bindtap="ensureLogin">
-      <image src="{{avatarUrl}}" class="avatar" mode="aspectFill"></image>
+    <view wx:if="{{isLoggedIn}}" class="user-box">
+      <view class="avatar-wrap">
+        <image src="{{avatarUrl}}" class="avatar" mode="aspectFill"></image>
+      </view>
       <view class="user-copy">
-        <view class="nickname">{{displayName}}</view>
-        <view class="uid">ID: {{displayId}} <text class="copy-mark">▢</text></view>
+        <view class="user-topline">
+          <view class="nickname">{{displayName}}</view>
+        </view>
+      </view>
+    </view>
+    <view wx:else class="user-box" bindtap="ensureLogin">
+      <view class="avatar-wrap">
+        <image src="{{avatarUrl}}" class="avatar" mode="aspectFill"></image>
+      </view>
+      <view class="user-copy">
+        <view class="user-topline">
+          <view class="nickname">未登陆</view>
+        </view>
       </view>
     </view>
 
     <view class="member-card">
-      <image src="/assets/crown.png" class="member-crown" mode="aspectFit"></image>
+      <image src="/assets/member-pro-banner.png" class="member-bg" mode="aspectFill"></image>
       <view class="member-info">
         <view class="member-title">{{memberName}}</view>
         <view class="member-date">{{memberExpireText}}</view>
@@ -20,7 +33,8 @@
     </view>
 
     <view class="points-card">
-      <view>
+      <image src="/assets/coin-stack.png" class="points-visual" mode="aspectFit"></image>
+      <view class="points-copy">
         <view class="points-label">剩余点数</view>
         <view class="points-num">{{displayPoints}} <text>点</text></view>
       </view>
@@ -28,6 +42,7 @@
     </view>
 
     <view class="share-card card">
+      <image src="/assets/reward-gift.png" class="reward-visual" mode="aspectFit"></image>
       <view class="share-head">
         <view>
           <view class="share-eyebrow">邀请奖励</view>
@@ -47,22 +62,23 @@
         </view>
       </view>
       <view class="share-actions">
-        <button class="share-btn reward" open-type="share" bindtap="markShareIntent">分享得 1 点</button>
-        <button class="share-btn poster" bindtap="sharePosterToTimeline">朋友圈海报</button>
+        <button class="share-btn reward" open-type="share" bindtap="markShareIntent">
+          <image class="share-weixin-icon" src="/assets/weixin.png" mode="aspectFit"></image>
+          <text>分享得 1 点</text>
+        </button>
       </view>
-      <view class="invite-link" bindtap="copyInviteLink">复制邀请链接</view>
       <view wx:if="{{shareStatusText}}" class="share-status">{{shareStatusText}}</view>
     </view>
 
     <view class="list-card card">
       <view class="list-item" bindtap="goRecords">
-        <view class="list-icon doc"></view>
+        <image class="list-icon" src="/assets/record-generate.png" mode="aspectFit"></image>
         <text>生成记录</text>
         <text class="chev">›</text>
       </view>
       <view class="line"></view>
       <view class="list-item" bindtap="goPurchases">
-        <view class="list-icon bag"></view>
+        <image class="list-icon" src="/assets/record-purchase.png" mode="aspectFit"></image>
         <text>购买记录</text>
         <text class="chev">›</text>
       </view>
@@ -74,11 +90,11 @@
       <view class="send-title">发送给:</view>
       <view class="friend-row">
         <view class="friend-avatar"></view>
-        <view class="friend-name">虚拟好友</view>
+        <view class="friend-name">模拟好友</view>
       </view>
       <view class="mini-card">
-        <view class="mini-title">AI出题小助手</view>
-        <image src="/assets/hero-banner.png" class="mini-shot" mode="aspectFill"></image>
+        <view class="mini-title">AI题卷宝</view>
+        <image src="/assets/ai_hero_card.png" class="mini-shot" mode="aspectFill"></image>
         <view class="mini-type">小程序</view>
       </view>
       <view class="dialog-actions">

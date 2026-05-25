@@ -1,23 +1,79 @@
 <view class="login-page">
-  <nav-bar title="AI出题小助手"></nav-bar>
-  <view class="login-hero">
-    <image src="/assets/logo-distinctive.png" class="login-logo" mode="aspectFit"></image>
-    <view class="login-title"><text>AI</text>出题小助手</view>
-    <view class="login-subtitle">登录后更好地使用全部功能</view>
-  </view>
+  <nav-bar title="AI题卷宝"></nav-bar>
 
-  <view class="login-actions">
-    <button class="wechat-btn" bindtap="login">
-      <view class="wechat-icon">●●</view>
-      <text>微信一键登录</text>
-    </button>
-    <view wx:if="{{mockLoginEnabled}}" class="mock-login" bindtap="mockLogin">本地模拟登录</view>
+  <view class="login-shell">
+    <view class="login-hero">
+      <image src="/assets/login-visual.png" class="login-visual" mode="aspectFit"></image>
+    </view>
+
+    <view class="brand-title">
+      <text class="brand-ai">AI</text>
+      <text>题卷宝</text>
+    </view>
+    <view class="brand-subtitle">登录后更好地使用全部功能</view>
+
+    <view class="login-actions action-stack">
+      <button class="app-btn app-btn-success wechat-btn" bindtap="login">
+        <image class="app-btn-icon wechat-icon" src="/assets/weixin.png" mode="aspectFit"></image>
+        <text>微信一键登录</text>
+      </button>
+      <button class="app-btn app-btn-secondary home-btn" bindtap="goHome">回到首页</button>
+    </view>
+
     <view class="agreement" bindtap="toggleAgree">
       <view class="checkbox {{agreed ? 'checked' : ''}}">{{agreed ? '✓' : ''}}</view>
       <text>我已阅读并同意</text>
       <text class="link">《用户协议》</text>
       <text>和</text>
       <text class="link">《隐私政策》</text>
+    </view>
+  </view>
+
+  <view wx:if="{{showTermsPopup}}" class="terms-mask" catchtap="noop">
+    <view class="terms-dialog" catchtap="noop">
+      <view class="terms-header">
+        <image class="terms-logo" src="/assets/logo-distinctive.png" mode="aspectFit"></image>
+        <text class="terms-title">AI题卷宝</text>
+      </view>
+      <view class="terms-content">
+        <text>在您使用 AI题卷宝 小程序前，请点击前往阅读</text>
+        <text class="terms-link">《用户协议》</text>
+        <text>和</text>
+        <text class="terms-link">《隐私政策》</text>
+        <text>。</text>
+        <text class="terms-divider"></text>
+        <text>如果您同意相关条款内容，请点击“同意并继续”继续使用。若您点击拒绝，登录失败后将返回首页。</text>
+      </view>
+      <view class="terms-actions">
+        <button class="terms-btn terms-cancel" catchtap="cancelTermsPrompt">取消</button>
+        <button class="terms-btn terms-confirm" catchtap="agreeTermsAndContinue">同意并继续</button>
+      </view>
+    </view>
+  </view>
+
+  <view wx:if="{{showProfilePopup}}" class="profile-mask" catchtap="closeProfilePopup">
+    <view class="profile-sheet" catchtap="noop">
+      <view class="profile-grabber"></view>
+      <view class="profile-title">授权微信资料</view>
+      <view class="profile-desc">选择微信头像和昵称后完成登录</view>
+      <form class="profile-form" bindsubmit="confirmProfileLogin">
+        <button class="avatar-select" open-type="chooseAvatar" bindchooseavatar="onChooseAvatar">
+          <image src="{{avatarUrl}}" class="avatar-preview" mode="aspectFill"></image>
+          <text>{{hasChosenAvatar ? '已选择微信头像' : '选择微信头像'}}</text>
+        </button>
+        <input
+          name="nickname"
+          class="nickname-input"
+          type="nickname"
+          value="{{nickname}}"
+          placeholder="选择或填写微信昵称"
+          bindinput="onNicknameInput"
+        />
+        <view class="profile-actions">
+          <button class="profile-cancel" type="default" bindtap="closeProfilePopup">取消</button>
+          <button class="profile-submit" form-type="submit" loading="{{profileSubmitting}}">确认登录</button>
+        </view>
+      </form>
     </view>
   </view>
 </view>

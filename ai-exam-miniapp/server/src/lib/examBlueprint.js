@@ -147,8 +147,7 @@ export function extractExamBlueprintFromText(fileText = '', defaults = {}) {
 }
 
 export function isFullPaperSimulation({ mode = '', prompt = '', fileText = '' } = {}) {
-  const text = `${prompt}\n${fileText}`
-  return mode === 'exam_simulation' || mode === 'full_paper_simulation' || /整卷仿真|同结构|试卷/.test(text)
+  return false
 }
 
 export function validateExamBlueprint(blueprint) {

@@ -8,6 +8,7 @@ import { EntitlementService } from '../services/entitlementService.js'
 import { OrderService } from '../services/orderService.js'
 import { WorksheetService } from '../services/worksheetService.js'
 import { GenerationJobService } from '../services/generationJobService.js'
+import { RewardService } from '../services/rewardService.js'
 
 export function createMainChain({ env, filesDir, uploadsDir }) {
   const db = env.dbProvider === 'cloudbase'
@@ -15,7 +16,8 @@ export function createMainChain({ env, filesDir, uploadsDir }) {
     : new LocalDbAdapter(env.localDbPath)
   const authService = new AuthService({ db, env })
   const entitlementService = new EntitlementService({ db })
-  const orderService = new OrderService({ db, authService })
+  const orderService = new OrderService({ db, authService, env })
+  const rewardService = new RewardService({ db, authService })
   const fileAdapter = env.fileProvider === 'cloudbase'
     ? new CloudBaseFileAdapter({ envId: env.cloudbaseEnvId, filesDir, uploadsDir, db })
     : new LocalFileAdapter({ filesDir, uploadsDir, publicBaseUrl: env.publicBaseUrl, db })
@@ -29,6 +31,6 @@ export function createMainChain({ env, filesDir, uploadsDir }) {
   generationJobService.recoverInterruptedJobs().catch(error => console.error('[generation-jobs] recover failed', error))
   const paymentProvider = env.paymentProvider === 'mock'
     ? new MockPaymentProvider({ db, orderService })
-    : new WechatPaymentProvider()
-  return { db, authService, entitlementService, orderService, fileAdapter, worksheetService, generationJobService, paymentProvider }
+    : new WechatPaymentProvider({ env, orderService })
+  return { db, authService, entitlementService, orderService, rewardService, fileAdapter, worksheetService, generationJobService, paymentProvider }
 }

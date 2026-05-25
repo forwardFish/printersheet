@@ -1,7 +1,16 @@
 {
-  "description": "AI出题小助手 - 原生微信小程序",
+  "description": "AI exam helper native WeChat mini program",
   "packOptions": {
-    "ignore": [],
+    "ignore": [
+      {
+        "type": "folder",
+        "value": "assets/backup"
+      },
+      {
+        "type": "prefix",
+        "value": "assets/ChatGPT Image"
+      }
+    ],
     "include": []
   },
   "setting": {
@@ -36,7 +45,7 @@
   },
   "compileType": "miniprogram",
   "libVersion": "3.15.2",
-  "appid": "touristappid",
+  "appid": "wx1e662dd78e2fb22e",
   "projectname": "ai-exam-helper-miniprogram",
   "condition": {},
   "simulatorPluginLibVersion": {},

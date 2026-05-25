@@ -1,5 +1,6 @@
 import { v4 as uuid } from 'uuid'
 import { pointsFor } from '../lib/worksheet.js'
+import { estimateGenerationCharge, isMeteredMode, validateMeteredPages } from '../lib/meteredGeneration.js'
 
 const TERMINAL_STATUSES = new Set(['succeeded', 'failed', 'cancelled'])
 const DEFAULT_JOB_TIMEOUT_MS = 10 * 60 * 1000
@@ -22,7 +23,9 @@ function safeBody(body = {}) {
     subject: String(body.subject || ''),
     difficulty: String(body.difficulty || ''),
     mode: String(body.mode || ''),
-    questionCount: Number(body.questionCount || 0)
+    questionCount: Number(body.questionCount || 0),
+    estimatedPages: Number(body.estimatedPages || 0),
+    pointsRequired: Number(body.pointsRequired || 0)
   }
 }
 
@@ -39,7 +42,8 @@ export class GenerationJobService {
   }
 
   async recoverInterruptedJobs() {
-    const running = await this.db.listGenerationJobs({ status: 'running' })
+    try {
+      const running = await this.db.listGenerationJobs({ status: 'running' })
     for (const job of running) {
       await this.db.update('generation_jobs', job.id, {
         status: 'queued',
@@ -48,7 +52,10 @@ export class GenerationJobService {
       })
     }
     const queued = await this.db.listGenerationJobs({ status: 'queued' })
-    if (queued.length) this.schedulePump()
+      if (queued.length) this.schedulePump()
+    } catch (error) {
+      console.error('[generation-jobs] recover skipped', error)
+    }
   }
 
   toResponse(job) {
@@ -90,7 +97,13 @@ export class GenerationJobService {
     }
 
     const id = uuid()
-    const pointsUsed = pointsFor(payload)
+    const charge = isMeteredMode(payload.mode)
+      ? (payload.estimatedPages
+          ? validateMeteredPages({ mode: payload.mode, estimatedPages: payload.estimatedPages })
+          : await estimateGenerationCharge({ mode: payload.mode, prompt: payload.prompt }))
+      : { estimatedPages: 1, pointsRequired: pointsFor(payload) }
+    if (payload.pointsRequired) charge.pointsRequired = payload.pointsRequired
+    const pointsUsed = pointsFor({ ...payload, estimatedPages: charge.estimatedPages, pointsRequired: charge.pointsRequired })
     const job = await this.db.create('generation_jobs', {
       id,
       jobId: id,
@@ -104,13 +117,13 @@ export class GenerationJobService {
       subject: payload.subject,
       difficulty: payload.difficulty,
       mode: payload.mode,
-      questionCount: payload.questionCount,
+      questionCount: isMeteredMode(payload.mode) ? 0 : payload.questionCount,
       pointsUsed,
       worksheetRecordId: '',
-      result: null,
+      result: {},
       errorMessage: '',
       finishedAt: '',
-      body: payload
+      body: { ...payload, estimatedPages: charge.estimatedPages, pointsRequired: charge.pointsRequired, questionCount: isMeteredMode(payload.mode) ? 0 : payload.questionCount }
     })
     this.schedulePump()
     return this.toResponse(job)

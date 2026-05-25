@@ -2,7 +2,7 @@
   "description": "printersheet root import config",
   "miniprogramRoot": "ai-exam-miniapp/miniprogram/",
   "compileType": "miniprogram",
-  "appid": "touristappid",
+  "appid": "wx1e662dd78e2fb22e",
   "projectname": "printersheet-ai-exam-helper",
   "setting": {
     "es6": true,
@@ -31,6 +31,14 @@
       {
         "type": "folder",
         "value": "ai-exam-miniapp/server"
+      },
+      {
+        "type": "folder",
+        "value": "ai-exam-miniapp/miniprogram/assets/backup"
+      },
+      {
+        "type": "prefix",
+        "value": "ai-exam-miniapp/miniprogram/assets/ChatGPT Image"
       }
     ],
     "include": []

@@ -1,10 +1,20 @@
 .omx/
 node_modules/
+*.zip
+ai-exam-miniapp/server/cert/
+ai-exam-miniapp/server/.data/
+ai-exam-miniapp/server/.runtime/
+ai-exam-miniapp/server/files/
+ai-exam-miniapp/server/uploads/
+ai-exam-miniapp/server/*.log
+ai-exam-miniapp/dev-assets-archive/
 docs/auto-execute/codex-exec-logs/
 docs/auto-execute/runtime/
 docs/auto-execute/*.log
+docs/auto-execute/geometry-template-test.*
 docs/test/generated/
 docs/test/pic/
 docs/test/新人教版初中数学 7年级上册.pdf
 docs/**/backup/*.png
 docs/backup/
+docs/UI/小程序/复刻对比/

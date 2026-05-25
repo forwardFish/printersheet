@@ -1,4 +1,4 @@
-import { getGenerationPointCost, normalizeGenerationMode, normalizeWorksheetMode } from './billing.js'
+import { getGenerationPointCost, isPageMeteredMode, normalizeGenerationMode, normalizeWorksheetMode } from './billing.js'
 
 export const WORKSHEET_MODES = ['practice', 'exam_simulation']
 export const QUESTION_TYPES = ['选择题', '填空题', '解答题', '判断题', '应用题']
@@ -12,6 +12,21 @@ function normalizeQuestion(question, index, defaults) {
   const options = Array.isArray(q.options)
     ? q.options.map(option => String(option || '').trim()).filter(Boolean)
     : []
+  const explanationSteps = Array.isArray(q.explanationSteps)
+    ? q.explanationSteps
+      .map(step => typeof step === 'object' && step !== null
+        ? String(step.text || step.content || step.statement || step.reason || step.latex || '').trim()
+        : String(step || '').trim())
+      .filter(Boolean)
+    : []
+  const proofSteps = Array.isArray(q.proofSteps)
+    ? q.proofSteps
+      .map(step => typeof step === 'object' && step !== null
+        ? String(step.text || step.content || step.statement || step.reason || step.latex || '').trim()
+        : String(step || '').trim())
+      .filter(Boolean)
+    : []
+  const explanation = String(q.explanation || q.analysis || explanationSteps.join('；') || proofSteps.join('；') || '略').trim()
   const type = String(q.type || q.section || '???').trim()
   const normalized = {
     number: Number(q.number || index + 1),
@@ -22,7 +37,7 @@ function normalizeQuestion(question, index, defaults) {
     question: String(q.question || q.stem || q.title || '').trim(),
     options,
     answer: String(q.answer || '').trim(),
-    explanation: String(q.explanation || q.analysis || '?').trim()
+    explanation
   }
   if (q.questionLatex || q.latexQuestion || q.latex) {
     normalized.questionLatex = String(q.questionLatex || q.latexQuestion || q.latex || '').trim()
@@ -30,18 +45,10 @@ function normalizeQuestion(question, index, defaults) {
   if (q.answerLatex) normalized.answerLatex = String(q.answerLatex || '').trim()
   if (q.explanationLatex) normalized.explanationLatex = String(q.explanationLatex || '').trim()
   if (Array.isArray(q.explanationSteps)) {
-    normalized.explanationSteps = q.explanationSteps
-      .map(step => typeof step === 'object' && step !== null
-        ? String(step.text || step.content || step.statement || step.reason || step.latex || '').trim()
-        : String(step || '').trim())
-      .filter(Boolean)
+    normalized.explanationSteps = explanationSteps
   }
   if (Array.isArray(q.proofSteps)) {
-    normalized.proofSteps = q.proofSteps
-      .map(step => typeof step === 'object' && step !== null
-        ? String(step.text || step.content || step.statement || step.reason || step.latex || '').trim()
-        : String(step || '').trim())
-      .filter(Boolean)
+    normalized.proofSteps = proofSteps
   }
   if (Array.isArray(q.renderBlocks)) {
     normalized.renderBlocks = q.renderBlocks
@@ -233,16 +240,19 @@ export function assertValidWorksheet(worksheet) {
   return worksheet
 }
 
-export function pointsFor({ prompt = '', mode = '', questionCount = 0, worksheet }) {
-  if (prompt.includes('整卷') || prompt.includes('同结构') || prompt.includes('试卷')) return 10
+export function pointsFor({ prompt = '', mode = '', questionCount = 0, worksheet, estimatedPages = 1, pointsRequired = 0 }) {
+  if (Number(pointsRequired || 0) > 0) return Number(pointsRequired)
   const normalizedMode = normalizeGenerationMode(mode || worksheet?.generationMode || worksheet?.mode)
+  if (isPageMeteredMode(normalizedMode)) return Math.max(1, Math.ceil(Number(estimatedPages || 1))) * 2
   if (normalizedMode !== 'normal') return getGenerationPointCost(normalizedMode)
   const count = Number(questionCount || worksheet?.questions?.length || 0)
   return count > 5 ? getGenerationPointCost('extended') : getGenerationPointCost('normal')
 }
 
 export function worksheetDefaults({ prompt = '', grade = '', subject = '', difficulty = '', mode = '' }) {
-  const topic = prompt.includes('方程') ? '一元一次方程' : '综合练习'
+  const topic = /几何|三角形|等腰|直角|全等|相似|平行线|角度|辅助线|图形|证明/.test(`${prompt}\n${subject}`)
+    ? '几何'
+    : (prompt.includes('方程') ? '一元一次方程' : '综合练习')
   const titleParts = [grade, subject, topic].filter(Boolean)
   return {
     title: titleParts.length ? `${titleParts.join('')}练习卷` : 'AI 智能练习卷',

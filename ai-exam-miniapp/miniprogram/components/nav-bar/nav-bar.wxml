@@ -5,7 +5,7 @@
     <view class="wifi"></view>
     <view class="battery"></view>
   </view>
-  <view class="nav-inner" style="height: {{navHeight}}px; padding-right: {{menuWidth + menuRight + 8}}px;">
+  <view class="nav-inner" style="height: {{navHeight}}px; padding-left: {{menuWidth + menuRight + 8}}px; padding-right: {{menuWidth + menuRight + 8}}px;">
     <view wx:if="{{back}}" class="back" bindtap="goBack"></view>
     <view class="title">{{title}}</view>
   </view>

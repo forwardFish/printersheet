@@ -1,7 +1,9 @@
 import { v4 as uuid } from 'uuid'
+import fs from 'fs/promises'
 import { parseUploadedFile } from '../lib/parseFile.js'
 import { generateWorksheetWithAI } from '../lib/ai.js'
 import { assertValidWorksheet, normalizeWorksheet, pointsFor } from '../lib/worksheet.js'
+import { estimateGenerationCharge, isMeteredMode } from '../lib/meteredGeneration.js'
 
 function parserStatusFor(file, fileText, meta = {}) {
   if (!file) return null
@@ -68,13 +70,20 @@ export class WorksheetService {
     const grade = String(body.grade || '')
     const subject = String(body.subject || '')
     const difficulty = String(body.difficulty || '')
-    const questionCount = Number(body.questionCount || 0)
-    const pointCost = pointsFor({ prompt, mode, questionCount })
+    const fileMeta = { fileName: body.fileName, fileType: body.fileType, fileExtension: body.fileExtension }
+    let charge
+    try {
+      charge = await estimateGenerationCharge({ mode, prompt, file, meta: fileMeta })
+    } catch (error) {
+      if (file?.path) fs.unlink(file.path).catch(() => {})
+      throw error
+    }
+    const questionCount = isMeteredMode(mode) ? 0 : Number(body.questionCount || 0)
+    const pointCost = pointsFor({ prompt, mode, questionCount, estimatedPages: charge.estimatedPages, pointsRequired: charge.pointsRequired })
     const recordId = uuid()
 
     await this.authService.consumePoints({ userId: user.id, points: pointCost, source: 'worksheet_generate', refId: recordId, requestId })
     try {
-      const fileMeta = { fileName: body.fileName, fileType: body.fileType, fileExtension: body.fileExtension }
       const fileText = await parseUploadedFile(file, fileMeta)
       const sourceFileInfo = file
         ? {
@@ -82,18 +91,22 @@ export class WorksheetService {
             type: body.fileType || file.mimetype,
             size: file.size,
             parsedTextLength: fileText.length,
-            parserStatus: parserStatusFor(file, fileText, fileMeta)
+            parserStatus: parserStatusFor(file, fileText, fileMeta),
+            estimatedPages: charge.estimatedPages,
+            pageEstimateSource: charge.source,
+            pageEstimateConfidence: charge.confidence
           }
         : null
       const generated = await withTimeout(
         generateWorksheetWithAI({ prompt, fileText, grade, subject, difficulty, mode, questionCount }),
         timeoutMs
       )
-      const pointsUsed = pointsFor({ prompt, mode, questionCount, worksheet: generated.worksheet })
+      const pointsUsed = pointsFor({ prompt, mode, questionCount, worksheet: generated.worksheet, estimatedPages: charge.estimatedPages, pointsRequired: charge.pointsRequired })
       const worksheet = assertValidWorksheet(normalizeWorksheet(generated.worksheet, {
         sourceFileInfo,
         pointsUsed,
-        ocrPages: 0
+        ocrPages: 0,
+        estimatedPages: charge.estimatedPages
       }))
       const entitlements = await this.entitlementService.getEntitlements(user.id)
       const files = await this.fileAdapter.createGeneratedFiles({
@@ -110,6 +123,7 @@ export class WorksheetService {
         prompt,
         mode: worksheet.mode || mode,
         pointsUsed,
+        estimatedPages: charge.estimatedPages,
         status: 'succeeded',
         worksheet,
         pdfFileId: files.pdf.id,
