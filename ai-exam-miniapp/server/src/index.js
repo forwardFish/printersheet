@@ -1,4 +1,4 @@
-import 'dotenv/config'
+import dotenv from 'dotenv'
 import express from 'express'
 import cors from 'cors'
 import multer from 'multer'
@@ -18,6 +18,8 @@ import { loadEnv } from './env/index.js'
 import { createMainChain } from './app/createMainChain.js'
 import { requireAuth } from './middleware/auth.js'
 import { registerMainChainRoutes } from './routes/mainChain.js'
+
+dotenv.config({ override: true })
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
