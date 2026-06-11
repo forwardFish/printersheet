@@ -7,6 +7,22 @@ export function normalizeMode(mode = '') {
   return normalizeWorksheetMode(mode)
 }
 
+function isRuledAnswerLine(line = '') {
+  const compact = String(line || '').replace(/\s+/g, '')
+  return compact.length >= 6 && /^[＿_\-－—─━一]+$/.test(compact)
+}
+
+export function stripAnswerScaffold(text = '') {
+  const lines = String(text || '').replace(/\r\n?/g, '\n').split('\n')
+  const markerIndex = lines.findIndex((line, index) =>
+    /^[\s　]*(?:答|解|证明)\s*[:：]?\s*$/.test(line) &&
+    lines.slice(index + 1).some(isRuledAnswerLine)
+  )
+  const value = (markerIndex >= 0 ? lines.slice(0, markerIndex).join('\n') : lines.join('\n'))
+    .replace(/[\s　]*(?:答|解|证明)\s*[:：]\s*(?:[＿_\-－—─━一]{6,}\s*)+$/u, '')
+  return value.trim()
+}
+
 function normalizeQuestion(question, index, defaults) {
   const q = question || {}
   const options = Array.isArray(q.options)
@@ -34,11 +50,12 @@ function normalizeQuestion(question, index, defaults) {
     type,
     difficulty: String(q.difficulty || defaults.difficulty || '??').trim(),
     skill: String(q.skill || q.knowledgePoint || q.knowledge || '????').trim(),
-    question: String(q.question || q.stem || q.title || '').trim(),
+    question: stripAnswerScaffold(q.question || q.stem || q.title || ''),
     options,
     answer: String(q.answer || '').trim(),
     explanation
   }
+  if (q.stem) normalized.stem = stripAnswerScaffold(q.stem)
   if (q.questionLatex || q.latexQuestion || q.latex) {
     normalized.questionLatex = String(q.questionLatex || q.latexQuestion || q.latex || '').trim()
   }
@@ -62,6 +79,9 @@ function normalizeQuestion(question, index, defaults) {
   }
   if (q.diagramSpec && typeof q.diagramSpec === 'object' && !Array.isArray(q.diagramSpec)) {
     normalized.diagramSpec = q.diagramSpec
+  }
+  if (q.solutionDiagramSpec && typeof q.solutionDiagramSpec === 'object' && !Array.isArray(q.solutionDiagramSpec)) {
+    normalized.solutionDiagramSpec = q.solutionDiagramSpec
   }
   if (q.needsDiagram !== undefined) normalized.needsDiagram = Boolean(q.needsDiagram)
   if (q.diagramSpecRequired !== undefined) normalized.diagramSpecRequired = Boolean(q.diagramSpecRequired)

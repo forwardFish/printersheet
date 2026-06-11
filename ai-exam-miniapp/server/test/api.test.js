@@ -8,6 +8,7 @@ import os from 'node:os'
 import path from 'node:path'
 import PDFDocument from 'pdfkit'
 import { PDFParse } from 'pdf-parse'
+import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs'
 import { Document, Packer, Paragraph, TextRun } from 'docx'
 import mammoth from 'mammoth'
 import JSZip from 'jszip'
@@ -369,8 +370,8 @@ test('worksheet schema preserves structured math, diagrams, and proof steps', ()
 })
 
 test('lightweight math formatting displays powers as superscripts', () => {
-  assert.equal(toDisplayMath('(-2)^3 + 3 * (-1)^4 - sqrt(16) ='), '( - 2)³ + 3 × ( - 1)⁴ - √16 =')
-  assert.equal(toDisplayMath('-3x^a y^2'), '- 3xᵃ y²')
+  assert.equal(toDisplayMath('(-2)^3 + 3 * (-1)^4 - sqrt(16) ='), '(-2)³ + 3 × (-1)⁴ - √16 =')
+  assert.equal(toDisplayMath('-3x^a y^2'), '-3xᵃ y²')
   assert.equal(toDisplayMath('2x^3 y^{b+1}'), '2x³ yᵇ⁺¹')
   assert.equal(toDisplayMath('p^m=4'), 'pᵐ = 4')
   assert.equal(toDisplayMath('2a^2b'), '2a²b')
@@ -508,7 +509,7 @@ test('PDF and DOCX exports render a five-question semantic geometry sheet', asyn
   assert.ok((await fsp.stat(pdfPath)).size > 0)
   const zip = await JSZip.loadAsync(await fsp.readFile(docxPath))
   assert.ok(zip.file(/word\/media\/.*\.svg$/).length >= 4)
-  assert.equal(((await zip.file('word/document.xml').async('string')).match(/<w:drawing>/g) || []).length, 5)
+  assert.equal(((await zip.file('word/document.xml').async('string')).match(/<w:drawing>/g) || []).length, 10)
 })
 
 test('PDF diagram inference does not use geometry fallback for algebra questions by number', () => {
@@ -516,6 +517,44 @@ test('PDF diagram inference does not use geometry fallback for algebra questions
     number: 5,
     question: 'Solve 3x + 4 = 19.',
     skill: 'linear equation'
+  })
+  assert.equal(spec, null)
+})
+
+test('PDF diagram inference honors explicit valid diagram specs without as-shown wording', () => {
+  const spec = inferQuestionDiagramSpec({
+    number: 4,
+    subject: '\u6570\u5b66',
+    question: '\u5728\u25b3ABC\u4e2d\uff0cAB=AC=5\uff0cBC=6\uff0cAD\u662fBC\u8fb9\u4e0a\u7684\u4e2d\u7ebf\uff0c\u6c42\u25b3ABD\u7684\u9762\u79ef\u3002',
+    needsDiagram: true,
+    diagramSpecRequired: true,
+    diagramSpec: {
+      diagramType: 'TRIANGLE_AUXILIARY_LINE',
+      params: {
+        vertices: ['A', 'B', 'C'],
+        footPoint: 'D',
+        lineKind: 'median',
+        sideLabels: [{ segment: ['A', 'B'], label: '5' }, { segment: ['A', 'C'], label: '5' }, { segment: ['B', 'C'], label: '6' }]
+      }
+    }
+  })
+  assert.equal(spec.diagramType, 'TRIANGLE_AUXILIARY_LINE')
+})
+
+test('PDF diagram inference ignores noisy AI graph flags for algebraic quadratic questions', () => {
+  const spec = inferQuestionDiagramSpec({
+    number: 1,
+    subject: '\u6570\u5b66',
+    question: '\u4e8c\u6b21\u51fd\u6570 y = 2(x-3)^2 + 5 \u7684\u9876\u70b9\u5750\u6807\u662f\uff1f',
+    skill: '\u4e8c\u6b21\u51fd\u6570\u9876\u70b9\u5750\u6807',
+    needsDiagram: true,
+    diagramSpecRequired: true,
+    diagramSpec: {
+      type: 'analytic_curve',
+      curveKind: 'parabola',
+      equation: 'y = 2(x-3)^2 + 5',
+      axes: { xLabel: 'x', yLabel: 'y' }
+    }
   })
   assert.equal(spec, null)
 })
@@ -639,6 +678,184 @@ test('AI retry includes schema failure reason before succeeding', async () => {
     const result = await generateWorksheetWithAI({ prompt: '生成 2 道一元一次方程题', questionCount: 2 })
     assert.equal(result.source, 'ai')
     assert.equal(result.worksheet.questions.length, 2)
+    assert.equal(calls, 2)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('AI geometry gate rejects numbered angle stems without matching diagram labels', async () => {
+  const originalFetch = globalThis.fetch
+  process.env.AI_MOCK_MODE = 'false'
+  process.env.DEEPSEEK_API_KEY = 'unit-test-key'
+  process.env.DEEPSEEK_BASE_URL = 'https://deepseek.example.test'
+  process.env.DEEPSEEK_MODEL = 'deepseek-chat'
+  let calls = 0
+
+  const baseQuestion = {
+    number: 1,
+    section: '\u5e73\u884c\u7ebf\u622a\u89d2',
+    type: '\u89e3\u7b54\u9898',
+    difficulty: '\u4e2d\u7b49',
+    skill: '\u5e73\u884c\u7ebf\u6027\u8d28',
+    question: '\u5982\u56fe\uff0c\u76f4\u7ebfa\u2225b\uff0c\u76f4\u7ebfc\u4e0ea\u3001b\u76f8\u4ea4\uff0c\u22201=50\u00b0\uff0c\u6c42\u22202\u7684\u5ea6\u6570\u3002',
+    questionLatex: '\\angle 1=50^\\circ, \\angle 2=?',
+    needsDiagram: true,
+    diagramSpecRequired: true,
+    geometryDomain: 'plane_geometry',
+    geometryTemplateFamily: 'parallel_lines',
+    answer: '50\u00b0',
+    explanation: '\u4e24\u76f4\u7ebf\u5e73\u884c\uff0c\u540c\u4f4d\u89d2\u76f8\u7b49\u3002'
+  }
+
+  try {
+    globalThis.fetch = async (_, init) => {
+      calls += 1
+      const body = JSON.parse(init.body)
+      if (calls === 1) {
+        return new Response(JSON.stringify({
+          choices: [{ message: { content: JSON.stringify({
+            title: 'bad numbered angle',
+            grade: '\u521d\u4e8c',
+            subject: '\u6570\u5b66',
+            mode: 'practice',
+            sourceAnchors: [],
+            questions: [{
+              ...baseQuestion,
+              diagramSpec: {
+                diagramType: 'PARALLEL_LINES_ANGLE',
+                params: {
+                  angles: [
+                    { point: 'E', value: '50\u00b0' },
+                    { point: 'F', value: '?' }
+                  ]
+                }
+              }
+            }]
+          }) } }]
+        }), { status: 200 })
+      }
+      assert.match(body.messages[1].content, /angleLabels must include visible marker/)
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: JSON.stringify({
+          title: 'fixed numbered angle',
+          grade: '\u521d\u4e8c',
+          subject: '\u6570\u5b66',
+          mode: 'practice',
+          sourceAnchors: [],
+          questions: [{
+            ...baseQuestion,
+            diagramSpec: {
+              diagramType: 'PARALLEL_LINES_ANGLE',
+              params: {
+                angles: [
+                  { point: 'E', value: '\u22201=50\u00b0' },
+                  { point: 'F', value: '\u22202' }
+                ]
+              }
+            }
+          }]
+        }) } }]
+      }), { status: 200 })
+    }
+
+    const result = await generateWorksheetWithAI({
+      prompt: '\u751f\u6210 1 \u9053\u5e73\u884c\u7ebf\u622a\u89d2\u51e0\u4f55\u9898\uff0c\u5fc5\u987b\u6709\u56fe',
+      grade: '\u521d\u4e8c',
+      subject: '\u6570\u5b66',
+      questionCount: 1
+    })
+    assert.equal(result.source, 'ai')
+    assert.equal(result.worksheet.questions[0].diagramSpec.angleLabels[0].label, '\u22201=50\u00b0')
+    assert.equal(calls, 2)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('AI geometry gate checks numbered angle markers in stem fields', async () => {
+  const originalFetch = globalThis.fetch
+  process.env.AI_MOCK_MODE = 'false'
+  process.env.DEEPSEEK_API_KEY = 'unit-test-key'
+  process.env.DEEPSEEK_BASE_URL = 'https://deepseek.example.test'
+  process.env.DEEPSEEK_MODEL = 'deepseek-chat'
+  let calls = 0
+
+  const question = {
+    number: 1,
+    section: '\u5e73\u884c\u7ebf\u622a\u89d2',
+    type: '\u89e3\u7b54\u9898',
+    difficulty: '\u4e2d\u7b49',
+    skill: '\u5e73\u884c\u7ebf\u6027\u8d28',
+    question: '\u6839\u636e\u56fe\u5f62\u6c42\u89d2\u5ea6\u3002',
+    stem: '\u5982\u56fe\uff0c\u76f4\u7ebfa\u2225b\uff0c\u22201=50\u00b0\uff0c\u22202=130\u00b0\uff0c\u6c42\u22203\u7684\u5ea6\u6570\u3002',
+    needsDiagram: true,
+    diagramSpecRequired: true,
+    geometryDomain: 'plane_geometry',
+    geometryTemplateFamily: 'parallel_lines',
+    answer: '50\u00b0',
+    explanation: '\u5229\u7528\u5e73\u884c\u7ebf\u89d2\u5173\u7cfb\u3002'
+  }
+
+  try {
+    globalThis.fetch = async (_, init) => {
+      calls += 1
+      const body = JSON.parse(init.body)
+      if (calls === 1) {
+        return new Response(JSON.stringify({
+          choices: [{ message: { content: JSON.stringify({
+            title: 'bad stem numbered angle',
+            grade: '\u521d\u4e8c',
+            subject: '\u6570\u5b66',
+            mode: 'practice',
+            sourceAnchors: [],
+            questions: [{
+              ...question,
+              diagramSpec: {
+                diagramType: 'PARALLEL_LINES_ANGLE',
+                params: {
+                  angles: [
+                    { point: 'E', value: '\u22201=50\u00b0' },
+                    { point: 'F', value: '\u22202=130\u00b0' }
+                  ]
+                }
+              }
+            }]
+          }) } }]
+        }), { status: 200 })
+      }
+      assert.match(body.messages[1].content, /visible marker/)
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: JSON.stringify({
+          title: 'fixed stem numbered angle',
+          grade: '\u521d\u4e8c',
+          subject: '\u6570\u5b66',
+          mode: 'practice',
+          sourceAnchors: [],
+          questions: [{
+            ...question,
+            diagramSpec: {
+              diagramType: 'PARALLEL_LINES_ANGLE',
+              params: {
+                angles: [
+                  { point: 'E', value: '\u22201=50\u00b0' },
+                  { point: 'F', value: '\u22202=130\u00b0' },
+                  { point: 'A', value: '\u22203' }
+                ]
+              }
+            }
+          }]
+        }) } }]
+      }), { status: 200 })
+    }
+
+    const result = await generateWorksheetWithAI({
+      prompt: '\u751f\u6210 1 \u9053\u5e73\u884c\u7ebf\u622a\u89d2\u51e0\u4f55\u9898\uff0c\u5fc5\u987b\u6709\u56fe',
+      grade: '\u521d\u4e8c',
+      subject: '\u6570\u5b66',
+      questionCount: 1
+    })
+    assert.equal(result.source, 'ai')
     assert.equal(calls, 2)
   } finally {
     globalThis.fetch = originalFetch
@@ -1226,6 +1443,11 @@ test('export endpoints return binary files by default and JSON urls on request',
   const freePdfText = await readGeneratedPdfText(data.pdfUrl)
   assertFreeWatermarkMarker(freePdfText, true)
   assert.ok(freePdfText.includes('free-watermark-tiles-per-page=6'), 'free PDF should mark six visible watermark tiles per page')
+  const freeExtractedText = await getGeneratedPdfExtractedText(data.pdfUrl)
+  assert.ok(freeExtractedText.includes('初一数学一元一次方程练习卷'), 'practice PDF should render the worksheet title')
+  assert.ok(freeExtractedText.includes('答案与解析'), 'practice PDF should render a readable answer page heading')
+  assert.ok(freeExtractedText.includes('答案：'), 'practice PDF should render readable answer labels')
+  assert.ok(freeExtractedText.includes('解析：'), 'practice PDF should render readable explanation labels')
   assert.equal(await getGeneratedPdfPageCount(data.pdfUrl), 2, 'single-question worksheet should only have question page + answer page')
 
   const memberUrlRes = await postJson(`${baseUrl(server)}/api/export/pdf?returnUrl=1`, { worksheet, watermark: false }, {
@@ -1240,6 +1462,229 @@ test('export endpoints return binary files by default and JSON urls on request',
   const memberPdfText = await readGeneratedPdfText(memberData.pdfUrl)
   assertFreeWatermarkMarker(memberPdfText, false)
   assert.equal(await getGeneratedPdfPageCount(memberData.pdfUrl), 2, 'member PDF should not contain trailing blank pages either')
+})
+
+test('practice PDF question pages reserve blank space without answer labels or ruled lines', async t => {
+  const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'printersheet-professional-layout-'))
+  t.after(() => fsp.rm(tmpDir, { recursive: true, force: true }))
+  const worksheet = normalizeWorksheet({
+    title: '\u4e13\u4e1a\u8bd5\u5377\u6392\u7248\u6d4b\u8bd5',
+    grade: '\u521d\u4e8c',
+    subject: '\u6570\u5b66',
+    mode: 'practice',
+    questions: [{
+      number: 1,
+      section: '\u4e09\u3001\u89e3\u7b54\u9898',
+      type: '\u89e3\u7b54\u9898',
+      difficulty: '\u4e2d\u7b49',
+      skill: '\u4e00\u6b21\u51fd\u6570',
+      question: '\u5982\u56fe\uff0c\u5df2\u77e5\u8fc7\u70b9 A(1,8) \u7684\u76f4\u7ebf l1 \u4e0e\u76f4\u7ebf l2: y=-3x+1 \u76f8\u4ea4\u4e8e\u70b9 B\uff0c\u6c42\u76f4\u7ebf l1 \u7684\u89e3\u6790\u5f0f\u3002\n\n\u7b54:\n____________________________\n____________________________',
+      options: [],
+      answer: 'y=2x+6',
+      explanation: '\u8bbe\u76f4\u7ebf\u89e3\u6790\u5f0f\uff0c\u4ee3\u5165\u6761\u4ef6\u6c42\u89e3\u3002'
+    }]
+  })
+  assert.equal(worksheet.questions[0].question.includes('\u7b54:'), false)
+  assert.equal(/_{6,}/.test(worksheet.questions[0].question), false)
+  const pdfPath = path.join(tmpDir, 'professional-layout.pdf')
+  const docxPath = path.join(tmpDir, 'professional-layout.docx')
+  await buildPdf({ worksheet, outputPath: pdfPath, watermark: false, includeAnswers: false })
+  await buildDocx({ worksheet, outputPath: docxPath })
+  const parser = new PDFParse({ data: await fsp.readFile(pdfPath) })
+  let pdfText = ''
+  try {
+    pdfText = String((await parser.getText()).text || '')
+  } finally {
+    await parser.destroy?.()
+  }
+
+  assert.equal(pdfText.includes('\u7b54\uff1a'), false)
+  assert.match(pdfText, /\u4e09\u3001\u89e3\u7b54\u9898/)
+
+  const docxText = String((await mammoth.extractRawText({ path: docxPath })).value || '')
+  const docxStudentText = docxText.split('\u7b54\u6848\u4e0e\u89e3\u6790')[0] || docxText
+  assert.equal(docxStudentText.includes('\u7b54\uff1a'), false)
+  assert.equal(/\u7b54[：:]_+/.test(docxStudentText), false)
+})
+
+test('Word export uses printable worksheet layout without raw LaTeX leakage', async t => {
+  const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'printersheet-word-layout-'))
+  t.after(() => fsp.rm(tmpDir, { recursive: true, force: true }))
+  const worksheet = normalizeWorksheet({
+    title: '高一数学综合练习卷',
+    grade: '高一',
+    subject: '数学',
+    mode: 'practice',
+    questions: [{
+      number: 1,
+      section: '选择题',
+      type: '选择题',
+      question: '已知 sinα = 3 / 5，且 α 为第二象限角，则 cosα 等于？',
+      questionLatex: '\\sin\\alpha = \\frac{3}{5}',
+      options: ['-4 / 5', '4 / 5', '-3 / 5', '3 / 5'],
+      answer: 'A',
+      answerLatex: '\\cos\\alpha=-\\frac{4}{5}',
+      explanationSteps: ['第二象限角余弦为负。', '$\\cos\\alpha=-\\sqrt{1-\\sin^2\\alpha}=-4/5$。']
+    }, {
+      number: 2,
+      section: '填空题',
+      type: '填空题',
+      question: '已知向量 a = (1,2)，b = (3,-1)，则 2a - b 的坐标为？',
+      questionLatex: '\\vec{a}=(1,2), \\vec{b}=(3,-1)',
+      answer: '(-1,5)',
+      answerLatex: '2\\vec{a}-\\vec{b}=(-1,5)',
+      explanationSteps: ['先求 $2a=(2,4)$。', '再计算 $2a-b=(2,4)-(3,-1)=(-1,5)$。']
+    }, {
+      number: 3,
+      section: '填空题',
+      type: '填空题',
+      question: '函数 f(x) = x^3 - 3x 在 x = 1 处的导数值为？',
+      questionLatex: 'f(x)=x^3-3x',
+      answer: '0',
+      answerLatex: "f'(1)=0",
+      explanationSteps: ["f'(x)=3x^2-3。", "代入 x=1，得 f'(1)=0。"]
+    }]
+  })
+  const docxPath = path.join(tmpDir, 'word-layout.docx')
+  await buildDocx({ worksheet, outputPath: docxPath })
+
+  const docxText = String((await mammoth.extractRawText({ path: docxPath })).value || '')
+  assert.equal(/\\(?:sin|alpha|vec|frac|sqrt)/.test(docxText), false)
+  assert.equal((docxText.match(/sinα/g) || []).length, 1)
+  assert.equal(docxText.includes('x³⁻'), false)
+  assert.equal((docxText.match(/f\(x\) = x³ - 3x/g) || []).length, 1)
+  assert.match(docxText, /cosα = -4 \/ 5/)
+  assert.equal(docxText.includes('(4) / (5)'), false)
+
+  const zip = await JSZip.loadAsync(await fsp.readFile(docxPath))
+  const documentXml = await zip.file('word/document.xml').async('string')
+  const stylesXml = await zip.file('word/styles.xml').async('string')
+  assert.match(documentXml, /w:pgSz[^>]+w:w="11906"[^>]+w:h="16838"/)
+  assert.match(documentXml, /w:pgMar[^>]+w:right="1440"[^>]+w:left="1440"/)
+  assert.match(documentXml, /w:tblW w:type="dxa" w:w="7200"/)
+  assert.match(documentXml, /A\.<\/w:t>/)
+  assert.match(documentXml, /w:pStyle w:val="QuestionText"/)
+  assert.match(documentXml, /w:tbl/)
+  assert.match(documentXml, /w:noProof/)
+  assert.match(stylesXml, /w:pBdr/)
+  const sectionHeadingStyle = stylesXml.match(/<w:style[^>]+w:styleId="SectionHeading"[\s\S]*?<\/w:style>/)?.[0] || ''
+  assert.equal(sectionHeadingStyle.includes('<w:pBdr>'), false)
+  assert.equal(documentXml.includes('25315C'), false)
+})
+
+test('practice PDF uses compact professional choice layout and readable CJK font when available', async t => {
+  const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'printersheet-choice-layout-'))
+  t.after(() => fsp.rm(tmpDir, { recursive: true, force: true }))
+  const worksheet = normalizeWorksheet({
+    title: '二次函数专题练习',
+    grade: '初三',
+    subject: '数学',
+    mode: 'practice',
+    questions: [{
+      number: 1,
+      section: '一、选择题',
+      type: '选择题',
+      question: '二次函数 y = -2x^2 + 4x + 1 的顶点坐标是？',
+      options: ['A.（1，3）', 'B.（-1，-5）', 'C.（2，1）', 'D.（1，-1）'],
+      answer: 'A',
+      explanation: '略'
+    }, {
+      number: 2,
+      section: '一、选择题',
+      type: '选择题',
+      question: '二次函数 y = x^2 - 6x + 5 与 x 轴的交点坐标是？',
+      options: ['A.（1,0）和（5,0）', 'B.（2,0）和（3,0）', 'C.（-1,0）和（-5,0）', 'D.（0,5）'],
+      answer: 'A',
+      explanation: '略'
+    }]
+  })
+  const pdfPath = path.join(tmpDir, 'choice-layout.pdf')
+  await buildPdf({ worksheet, outputPath: pdfPath, watermark: false, includeAnswers: false })
+
+  const pdfBytes = await fsp.readFile(pdfPath)
+  if (fs.existsSync('C:/Windows/Fonts/NotoSansSC-VF.ttf')) {
+    assert.match(pdfBytes.toString('latin1'), /NotoSansSC/i)
+  }
+
+  const pdf = await getDocument({ data: new Uint8Array(pdfBytes), disableWorker: true }).promise
+  try {
+    const page = await pdf.getPage(1)
+    const items = (await page.getTextContent()).items
+      .map(item => ({ str: item.str, x: item.transform[4], y: item.transform[5], h: item.height }))
+      .filter(item => String(item.str || '').trim())
+    const q1 = items.find(item => item.str === '1.')
+    const q2 = items.find(item => item.str === '2.')
+    assert.ok(q1 && q2)
+    assert.ok(q1.y - q2.y < 90, 'choice questions should be compactly spaced like a printed worksheet')
+    assert.ok(q1.y > 600, 'first question should start near the top of the printable page after the worksheet title')
+
+    const firstOptionRow = items.filter(item => /^(A|B|C|D)\./.test(item.str) && Math.abs(item.y - items.find(it => /^A\./.test(it.str)).y) < 1)
+    assert.equal(firstOptionRow.length, 4)
+    assert.deepEqual(firstOptionRow.map(item => Math.round(item.x / 10) * 10), [60, 190, 320, 450])
+  } finally {
+    await pdf.destroy()
+  }
+})
+
+test('practice PDF keeps diagram choice options with the question block', async t => {
+  const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'printersheet-diagram-choice-layout-'))
+  t.after(() => fsp.rm(tmpDir, { recursive: true, force: true }))
+  const worksheet = normalizeWorksheet({
+    title: '高三椭圆几何练习卷',
+    grade: '高三',
+    subject: '数学',
+    mode: 'practice',
+    questions: [{
+      number: 1,
+      section: '一、选择题',
+      type: '选择题',
+      question: '已知椭圆 x^2/9 + y^2/5 = 1 的两个焦点为 F1,F2，P 为椭圆上一点，且 ∠F1PF2=60°，则三角形 PF1F2 的面积为',
+      options: ['A. 5√3/3', 'B. 5√3/2', 'C. 5√3', 'D. 10√3/3'],
+      answer: 'C',
+      explanation: '略',
+      needsDiagram: true,
+      diagramSpecRequired: true,
+      diagramSpec: {
+        type: 'analytic_curve',
+        curveKind: 'ellipse',
+        equation: 'x^2/9+y^2/5=1',
+        axes: { a: 3, b: Math.sqrt(5) },
+        points: { F1: [-2, 0], F2: [2, 0], P: [0.5, 2.2] },
+        segments: [['P', 'F1'], ['P', 'F2']],
+        labels: ['F1', 'F2', 'P'],
+        angleLabels: [{ point: 'P', label: '60°' }]
+      }
+    }, {
+      number: 2,
+      section: '一、选择题',
+      type: '选择题',
+      question: '已知椭圆 x^2/4 + y^2/3 = 1 的左、右焦点分别为 F1,F2，点 P 为椭圆上任意一点，求 |PF1|×|PF2| 的最大值。',
+      options: ['A. 2', 'B. 3', 'C. 4', 'D. 5'],
+      answer: 'C',
+      explanation: '略',
+      needsDiagram: true,
+      diagramSpecRequired: true,
+      diagramSpec: {
+        type: 'analytic_curve',
+        curveKind: 'ellipse',
+        equation: 'x^2/4+y^2/3=1',
+        axes: { a: 2, b: Math.sqrt(3) },
+        points: { F1: [-1, 0], F2: [1, 0], P: [0, Math.sqrt(3)] },
+        segments: [['P', 'F1'], ['P', 'F2']],
+        labels: ['F1', 'F2', 'P']
+      }
+    }]
+  })
+  const pdfPath = path.join(tmpDir, 'diagram-choice-layout.pdf')
+  await buildPdf({ worksheet, outputPath: pdfPath, watermark: false, includeAnswers: false })
+
+  const pdfBytes = await fsp.readFile(pdfPath)
+  const pdf = await getDocument({ data: new Uint8Array(pdfBytes), disableWorker: true }).promise
+  try {
+    assert.ok(pdf.numPages <= 2, `diagram choice sheet should not split options into blank pages; got ${pdf.numPages} pages`)
+  } finally {
+    await pdf.destroy()
+  }
 })
 
 test('PDF and Word answer pages prefer structured math steps over raw long explanation', async t => {
@@ -1289,6 +1734,118 @@ test('PDF and Word answer pages prefer structured math steps over raw long expla
   const docxText = String((await mammoth.extractRawText({ path: docxPath })).value || '')
   assert.match(docxText, /数轴上两点距离/)
   assert.equal(docxText.includes('原始长文本不应该'), false)
+})
+
+test('practice PDF answer pages include geometry solution diagrams', async t => {
+  const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'printersheet-solution-diagram-'))
+  t.after(() => fsp.rm(tmpDir, { recursive: true, force: true }))
+  const worksheet = normalizeWorksheet({
+    title: 'geometry solution diagram',
+    grade: '初三',
+    subject: '数学',
+    mode: 'practice',
+    questions: [{
+      number: 1,
+      section: '一、解答题',
+      type: '解答题',
+      difficulty: '中等',
+      skill: '椭圆焦点三角形',
+      question: '已知椭圆的两个焦点为 F1、F2，点 P 在椭圆上，且角 F1PF2=60 度，求焦点三角形中的关键关系。',
+      options: [],
+      answer: 'PF1 与 PF2 及夹角 60 度构成焦点三角形',
+      explanation: '连接 PF1、PF2，并在点 P 标出 60 度角。',
+      explanationSteps: [
+        '先在图中连接 PF1 和 PF2，得到焦点三角形 F1PF2。',
+        '利用点 P 处的 60 度角分析三角形关系。'
+      ],
+      needsDiagram: true,
+      diagramSpecRequired: true,
+      diagramSpec: {
+        type: 'analytic_curve',
+        curveKind: 'ellipse',
+        equation: 'x^2/25+y^2/16=1',
+        axes: { xMin: -6, xMax: 6, yMin: -5, yMax: 5 },
+        points: { F1: [-3, 0], F2: [3, 0], P: [0, 4] },
+        segments: [['P', 'F1'], ['P', 'F2']],
+        angleLabels: [{ point: 'P', label: '60 degrees' }],
+        labels: ['F1', 'F2', 'P']
+      },
+      solutionDiagramSpec: {
+        type: 'analytic_curve',
+        curveKind: 'ellipse',
+        equation: 'x^2/25+y^2/16=1',
+        axes: { xMin: -6, xMax: 6, yMin: -5, yMax: 5 },
+        points: { F1: [-3, 0], F2: [3, 0], P: [0, 4] },
+        segments: [['P', 'F1'], ['P', 'F2'], ['F1', 'F2']],
+        angleLabels: [{ point: 'P', label: '60 degrees' }],
+        lengthLabels: [{ segment: ['F1', 'F2'], label: '2c' }],
+        labels: ['F1', 'F2', 'P']
+      }
+    }]
+  })
+  const pdfPath = path.join(tmpDir, 'solution-diagram.pdf')
+  await buildPdf({ worksheet, outputPath: pdfPath, watermark: false })
+
+  const parser = new PDFParse({ data: await fsp.readFile(pdfPath) })
+  let pdfText = ''
+  try {
+    pdfText = String((await parser.getText()).text || '')
+  } finally {
+    await parser.destroy?.()
+  }
+  assert.match(pdfText, /\u89e3\u7b54\u56fe/)
+  assert.match(pdfText, /60/)
+})
+
+test('practice Word answer pages include geometry solution diagrams', async t => {
+  const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'printersheet-word-solution-diagram-'))
+  t.after(() => fsp.rm(tmpDir, { recursive: true, force: true }))
+  const worksheet = normalizeWorksheet({
+    title: 'word solution diagram',
+    grade: '初三',
+    subject: '数学',
+    mode: 'practice',
+    questions: [{
+      number: 1,
+      section: '一、解答题',
+      type: '解答题',
+      difficulty: '较难',
+      skill: '椭圆焦点三角形',
+      question: '已知椭圆的两个焦点为 F1、F2，点 P 在椭圆上，且角 F1PF2=60 度，求焦点三角形中的关键关系。',
+      options: [],
+      answer: 'PF1 与 PF2 及夹角 60 度构成焦点三角形',
+      explanation: '连接 PF1、PF2，并在点 P 标出 60 度角。',
+      explanationSteps: ['连接 PF1 和 PF2。', '利用点 P 处的 60 度角分析三角形关系。'],
+      needsDiagram: true,
+      diagramSpecRequired: true,
+      diagramSpec: {
+        type: 'analytic_curve',
+        curveKind: 'ellipse',
+        equation: 'x^2/25+y^2/9=1',
+        points: ['F1', 'F2', 'P'],
+        segments: [['P', 'F1'], ['P', 'F2']],
+        angleLabels: [{ point: 'P', label: '60 degrees' }],
+        labels: ['F1', 'F2', 'P']
+      },
+      solutionDiagramSpec: {
+        type: 'analytic_curve',
+        curveKind: 'ellipse',
+        equation: 'x^2/25+y^2/9=1',
+        axes: true,
+        points: ['F1', 'F2', 'P'],
+        segments: [['P', 'F1'], ['P', 'F2'], ['F1', 'F2']],
+        angleLabels: [{ point: 'P', label: '60 degrees' }],
+        lengthLabels: [{ segment: ['F1', 'F2'], label: '2c=8' }],
+        labels: ['F1', 'F2', 'P']
+      }
+    }]
+  })
+  const docxPath = path.join(tmpDir, 'solution-diagram.docx')
+  await buildDocx({ worksheet, outputPath: docxPath })
+  const zip = await JSZip.loadAsync(await fsp.readFile(docxPath))
+  const documentXml = await zip.file('word/document.xml').async('string')
+  assert.ok(zip.file(/word\/media\/.*\.svg$/).length >= 2)
+  assert.equal((documentXml.match(/<w:drawing>/g) || []).length, 2)
 })
 
 test('points policy and frontend secret guard are enforced', async () => {
@@ -1642,6 +2199,9 @@ test('phase 1 worksheet generation deducts points, persists records and is reque
   const persisted = JSON.parse(await fsp.readFile(process.env.LOCAL_DB_PATH, 'utf8'))
   assert.equal(persisted.worksheet_records.length, 1)
   assert.equal(persisted.file_objects.filter(item => item.recordId === first.worksheetId).length, 2)
+  const cachedPdf = persisted.file_objects.find(item => item.recordId === first.worksheetId && item.type === 'pdf')
+  assert.ok(cachedPdf?.storagePath)
+  await fsp.rm(cachedPdf.storagePath, { force: true })
 
   const pdf = await fetch(`${base}${first.pdfUrl}`, { headers: session.auth })
   assert.equal(pdf.status, 200)

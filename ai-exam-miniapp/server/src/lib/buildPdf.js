@@ -13,13 +13,31 @@ const PAGE_BOTTOM = 735
 const EXAM_LEFT = 76
 const EXAM_RIGHT = 520
 const EXAM_WIDTH = EXAM_RIGHT - EXAM_LEFT
+const PRACTICE_LEFT = 38
+const PRACTICE_RIGHT = 560
+const PRACTICE_WIDTH = PRACTICE_RIGHT - PRACTICE_LEFT
+const PRACTICE_TEXT_LEFT = 58
+const PRACTICE_TEXT_WIDTH = PRACTICE_RIGHT - PRACTICE_TEXT_LEFT
+const COLORS = {
+  ink: '#111827',
+  muted: '#667085',
+  line: '#1F2937',
+  hairline: '#D7DCE5',
+  paper: '#F8F9FB',
+  accent: '#4F46E5',
+  accentDark: '#312E81',
+  accentSoft: '#F1F3F8'
+}
 
 function findFont() {
   const candidates = [
     process.env.PDF_FONT_PATH,
-    'C:/Windows/Fonts/simhei.ttf',
     'C:/Windows/Fonts/NotoSansSC-VF.ttf',
     'C:/Windows/Fonts/Noto Sans SC (TrueType).otf',
+    'C:/Windows/Fonts/STSONG.TTF',
+    'C:/Windows/Fonts/simsun.ttc',
+    'C:/Windows/Fonts/simsunb.ttf',
+    'C:/Windows/Fonts/simkai.ttf',
     'C:/Windows/Fonts/Deng.ttf',
     'C:/Windows/Fonts/msyh.ttc',
     'C:/Windows/Fonts/msyhbd.ttc',
@@ -33,9 +51,12 @@ function findFont() {
 function findBoldFont() {
   const candidates = [
     process.env.PDF_BOLD_FONT_PATH,
-    'C:/Windows/Fonts/simhei.ttf',
-    'C:/Windows/Fonts/Dengb.ttf',
+    'C:/Windows/Fonts/Noto Sans SC Bold (TrueType).otf',
     'C:/Windows/Fonts/NotoSansSC-Bold.otf',
+    'C:/Windows/Fonts/simhei.ttf',
+    'C:/Windows/Fonts/simsunb.ttf',
+    'C:/Windows/Fonts/STSONG.TTF',
+    'C:/Windows/Fonts/Dengb.ttf',
     '/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.otf',
     '/System/Library/Fonts/PingFang.ttc'
   ].filter(Boolean)
@@ -143,8 +164,24 @@ function plainMathText(text = '') {
   return pdfSafeText(splitMathParts(chemistrySafe).map(part => part.type === 'math' ? toDisplayMath(part.text) : part.text).join(''))
 }
 
+function isRuledAnswerLine(line = '') {
+  const compact = String(line || '').replace(/\s+/g, '')
+  return compact.length >= 6 && /^[＿_\-－—─━一]+$/.test(compact)
+}
+
+function stripAnswerScaffold(text = '') {
+  const lines = String(text || '').replace(/\r\n?/g, '\n').split('\n')
+  const markerIndex = lines.findIndex((line, index) =>
+    /^[\s　]*(?:答|解|证明)\s*[:：]?\s*$/.test(line) &&
+    lines.slice(index + 1).some(isRuledAnswerLine)
+  )
+  const value = (markerIndex >= 0 ? lines.slice(0, markerIndex).join('\n') : lines.join('\n'))
+    .replace(/[\s　]*(?:答|解|证明)\s*[:：]\s*(?:[＿_\-－—─━一]{6,}\s*)+$/u, '')
+  return value.trim()
+}
+
 function withLatexText(text = '', latex = '') {
-  const base = String(text || '').trim()
+  const base = stripAnswerScaffold(text)
   const formula = plainMathText(latex || '')
   if (!formula) return base
   const compactBase = plainMathText(base).replace(/\s+/g, '')
@@ -157,7 +194,7 @@ function withLatexText(text = '', latex = '') {
 }
 
 function sanitizeText(text = '') {
-  return plainMathText(text)
+  return plainMathText(stripAnswerScaffold(text))
     .replace(/÷/g, '/')
     .replace(/（\s*图略\s*）/g, '')
     .replace(/图略/g, '')
@@ -186,12 +223,11 @@ function writeWatermarks(doc) {
     for (const [x, y] of tiles) {
       doc.save()
       doc.rotate(-24, { origin: [x, y] })
-      doc.fontSize(28).fillColor('#766DFF').opacity(0.22)
-        .text('AI出题小助手 免费版水印', x - 190, y - 18, { align: 'center', width: 380, lineBreak: false })
+      doc.fontSize(22).fillColor(COLORS.accent).opacity(0.045)
+        .text('\u0041\u0049\u51fa\u9898\u5c0f\u52a9\u624b \u514d\u8d39\u7248\u6c34\u5370', x - 185, y - 14, { align: 'center', width: 370, lineBreak: false })
       doc.restore()
     }
-    doc.opacity(1).fontSize(10).fillColor('#5F6068')
-      .text('由 AI出题小助手 生成 · 免费版 PDF 带水印', 52, 744, { align: 'center', width: 490, lineBreak: false })
+    doc.opacity(1)
   }
 }
 
@@ -385,11 +421,27 @@ function isMathSubject(subject = '') {
   return /数学|math/i.test(String(subject || ''))
 }
 
+function declaredDiagramLooksGeometric(q = {}, spec = null) {
+  if (q.needsDiagram !== true && q.diagramSpecRequired !== true) return false
+  const text = [q.subject, q.type, q.section, q.skill, q.question, q.questionLatex].join(' ')
+  const geometricText = /椭圆|双曲线|抛物线|圆锥曲线|焦点|准线|圆|三角形|△|Rt△|中线|高线|垂线|角平分线|正方体|立方体|长方体|四面体|棱锥|棱柱|线面角|二面角|∠|F1|F2|A₁|B₁|C₁|D₁|A1|B1|C1|D1/.test(text)
+  const plainFunction = /函数|二次函数|一次函数/.test(text) && !/椭圆|双曲线|抛物线|圆锥曲线|焦点|准线|正方体|三角形|△|∠/.test(text)
+  if (plainFunction) return false
+  return geometricText || ['solid_diagram', 'circle_geometry'].includes(String(spec?.type || '')) || Boolean(spec?.diagramType)
+}
+
 export function inferQuestionDiagramSpec(q = {}) {
   const existing = q.diagramSpec && typeof q.diagramSpec === 'object' && !Array.isArray(q.diagramSpec)
     ? q.diagramSpec
     : null
-  if (diagramSpecIsMeaningful(existing) && validateGeometryDiagramSpec(existing, q.number).valid) return existing
+  const classification = classifyGeometryQuestion({
+    ...q,
+    needsDiagram: undefined,
+    diagramSpecRequired: undefined
+  })
+  if (diagramSpecIsMeaningful(existing) && validateGeometryDiagramSpec(existing, q.number).valid) {
+    return (classification.needsDiagram || declaredDiagramLooksGeometric(q, existing)) ? existing : null
+  }
 
   const text = `${q.question || ''} ${q.questionLatex || ''}`
   const compact = text.replace(/\s+/g, '')
@@ -409,7 +461,6 @@ export function inferQuestionDiagramSpec(q = {}) {
     }
   }
 
-  const classification = classifyGeometryQuestion(q)
   if (existing && existing.type && existing.type !== 'none') {
     return classification.needsDiagram ? existing : null
   }
@@ -547,6 +598,40 @@ function writeQuestionDiagram(doc, q, opts = {}) {
   return true
 }
 
+export function inferSolutionDiagramSpec(q = {}) {
+  const explicit = q.solutionDiagramSpec && typeof q.solutionDiagramSpec === 'object' && !Array.isArray(q.solutionDiagramSpec)
+    ? q.solutionDiagramSpec
+    : null
+  if (diagramSpecIsMeaningful(explicit) && validateGeometryDiagramSpec(explicit, q.number).valid) return explicit
+  return inferQuestionDiagramSpec(q)
+}
+
+function writeSolutionDiagram(doc, q) {
+  const diagramSpec = inferSolutionDiagramSpec(q)
+  if (!diagramSpec) return false
+  ensureSpace(doc, 138)
+  setPdfFont(doc, 'bold')
+  doc.fontSize(10.6).fillColor(COLORS.ink).text('\u89e3\u7b54\u56fe\uff1a', PRACTICE_LEFT + 22, doc.y, {
+    width: 80,
+    lineBreak: false
+  })
+  const startY = doc.y + 16
+  const result = renderGeometryDiagram(doc, diagramSpec, {
+    questionNumber: q.number,
+    allowFallback: false,
+    lockTemplates: false,
+    x: PRACTICE_LEFT + 42,
+    y: startY,
+    width: Math.min(320, PRACTICE_WIDTH - 78),
+    height: 116,
+    scale: 1
+  })
+  if (!result.height) return false
+  setPdfFont(doc)
+  doc.y = startY + Math.max(result.height, 116) + 10
+  return true
+}
+
 function writeExamPdf(doc, worksheet) {
   writeExamHeader(doc, worksheet)
   const allowMathFallbackDiagrams = isMathSubject(worksheet.subject)
@@ -584,59 +669,100 @@ function writeExamPdf(doc, worksheet) {
 }
 
 function writeAnswerBlock(doc, q) {
-  ensureSpace(doc, 110)
+  const hasSolutionDiagram = Boolean(inferSolutionDiagramSpec(q))
+  ensureSpace(doc, hasSolutionDiagram ? 220 : 96)
   setPdfFont(doc, 'bold')
-  doc.fontSize(13).fillColor('#111111')
-    .text(`${q.number}. 答案：${plainMathText(withLatexText(q.answer || '略', q.answerLatex))}`, { lineGap: 4 })
+  doc.fontSize(11.5).fillColor(COLORS.ink)
+    .text(`${q.number}. \u7b54\u6848\uff1a${plainMathText(withLatexText(q.answer || '\u7565', q.answerLatex))}`, PRACTICE_LEFT, doc.y, {
+      width: PRACTICE_WIDTH,
+      lineGap: 3
+    })
+  doc.moveDown(0.3)
+  writeSolutionDiagram(doc, q)
   const steps = explanationStepsForQuestion(q)
   if (!steps.length) {
     setPdfFont(doc)
-    doc.fontSize(11.2).fillColor('#222222').text('解析：略', { lineGap: 4 })
-    doc.moveDown(0.55)
+    doc.fontSize(10.5).fillColor(COLORS.muted).text('\u89e3\u6790\uff1a\u7565', PRACTICE_LEFT + 22, doc.y, {
+      width: PRACTICE_WIDTH - 22,
+      lineGap: 4
+    })
+    doc.moveDown(0.75)
     return
   }
-  doc.moveDown(0.15)
+
   setPdfFont(doc, 'bold')
-  doc.fontSize(11.5).fillColor('#111111').text('解析：', { lineGap: 3 })
+  doc.fontSize(10.8).fillColor(COLORS.ink).text('\u89e3\u6790\uff1a', PRACTICE_LEFT + 22, doc.y, {
+    width: 60,
+    lineBreak: false
+  })
+  doc.moveDown(0.25)
   setPdfFont(doc)
-  for (const step of steps) {
-    ensureSpace(doc, 34)
-    doc.fontSize(11.2).fillColor('#222222').text(plainMathText(step), { indent: 12, width: 470, lineGap: 5 })
-  }
-  doc.moveDown(0.45)
+  steps.forEach((step, index) => {
+    ensureSpace(doc, 30)
+    const y = doc.y
+    doc.fontSize(10.3).fillColor('#202938').text(`${index + 1}. ${plainMathText(step)}`, PRACTICE_LEFT + 34, y, {
+      width: PRACTICE_WIDTH - 40,
+      lineGap: 4
+    })
+    doc.y += 3
+  })
+  doc.moveDown(0.55)
 }
 
 function writePracticeHeader(doc, worksheet) {
-  const title = worksheet.title || 'AI 智能练习卷'
+  const title = sanitizeText(worksheet.title || 'AI 智能练习卷')
+  const grade = sanitizeText(worksheet.grade || '')
+  const subject = sanitizeText(worksheet.subject || '')
+  const meta = [grade, subject, '学生练习版'].filter(Boolean).join(' · ')
+
+  doc.y = 48
   setPdfFont(doc, 'bold')
-  doc.fontSize(21).fillColor('#111111').text(title, 52, 50, { align: 'center', width: 491, lineGap: 2 })
+  doc.fontSize(19).fillColor(COLORS.ink).text(title, PRACTICE_LEFT, doc.y, {
+    align: 'center',
+    width: PRACTICE_WIDTH,
+    lineGap: 2
+  })
   setPdfFont(doc)
-  doc.fontSize(10.5).fillColor('#6B7280')
-    .text(`${worksheet.grade || '年级'} · ${worksheet.subject || '学科'} · 学生练习版`, 52, doc.y + 8, { align: 'center', width: 491 })
-  doc.moveDown(1.15)
-  const metaY = doc.y
-  doc.save().roundedRect(112, metaY, 370, 36, 8).fill('#F7F8FB').restore()
-  doc.fillColor('#222222').fontSize(12)
-  doc.text('班级：________', 132, metaY + 11, { width: 100, lineBreak: false })
-  doc.text('姓名：________', 252, metaY + 11, { width: 100, lineBreak: false })
-  doc.text('得分：________', 372, metaY + 11, { width: 100, lineBreak: false })
-  doc.y = metaY + 44
-  doc.moveTo(72, doc.y).lineTo(523, doc.y).lineWidth(1).strokeColor('#D8DDE8').stroke()
-  doc.y += 18
+  if (meta) {
+    doc.moveDown(0.25)
+    doc.fontSize(10).fillColor(COLORS.muted).text(meta, PRACTICE_LEFT, doc.y, {
+      align: 'center',
+      width: PRACTICE_WIDTH
+    })
+  }
+  const metaY = Math.max(doc.y + 12, 88)
+  doc.save().roundedRect(112, metaY, 370, 32, 6).fill(COLORS.paper).restore()
+  doc.fillColor(COLORS.ink).fontSize(10.5)
+  doc.text('班级：________', 132, metaY + 9, { width: 100, lineBreak: false })
+  doc.text('姓名：________', 252, metaY + 9, { width: 100, lineBreak: false })
+  doc.text('得分：________', 372, metaY + 9, { width: 100, lineBreak: false })
+  doc.y = metaY + 46
+  doc.moveTo(PRACTICE_LEFT, doc.y).lineTo(PRACTICE_RIGHT, doc.y).lineWidth(1).strokeColor(COLORS.hairline).stroke()
+  doc.y += 16
 }
 
-function writePracticeSectionTitle(doc, section) {
-  ensureSpace(doc, 70)
-  doc.moveDown(0.25)
+function sectionHeadingLabel(section, q, index) {
+  const raw = sanitizeText(section)
+  if (/^[一二三四五六七八九十]+[、.．]/.test(raw)) return raw
+  const prefix = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十'][index] || String(index + 1)
+  if (q?.options?.length || /选择/.test(raw)) return `${prefix}、${raw || '选择题'}`
+  if (/填空/.test(raw)) return `${prefix}、${raw}`
+  if (/计算|解答|应用|证明|综合/.test(raw)) return `${prefix}、${raw}`
+  return `${prefix}、${raw || '练习题'}`
+}
+
+function writePracticeSectionTitle(doc, section, q, index = 0) {
+  ensureSpace(doc, 44)
+  if (doc.y > 58) doc.y += 10
   const sectionY = doc.y
-  doc.save()
-  doc.roundedRect(72, sectionY, 451, 34, 6).fill('#F3F5F9')
-  doc.rect(72, sectionY, 5, 34).fill('#5A4BF4')
-  doc.restore()
-  setPdfFont(doc, 'bold')
-  doc.fontSize(15).fillColor('#111111').text(sanitizeText(section), 88, sectionY + 8, { width: 420, lineBreak: false })
+  const label = sectionHeadingLabel(section, q, index)
   setPdfFont(doc)
-  doc.y = sectionY + 48
+  doc.fontSize(12).fillColor('#111111').text(label, PRACTICE_LEFT, sectionY, {
+    width: PRACTICE_WIDTH,
+    lineGap: 2
+  })
+  setPdfFont(doc)
+  doc.y = Math.max(doc.y, sectionY + 28)
 }
 
 function estimateTextHeight(doc, text, width, fontSize, lineGap = 4) {
@@ -647,89 +773,178 @@ function estimateTextHeight(doc, text, width, fontSize, lineGap = 4) {
   return height
 }
 
-function writePracticeOptions(doc, options = []) {
+function practiceOptionLayout(doc, options = []) {
   const items = options.slice(0, 4).map((option, index) => {
     const label = String.fromCharCode(65 + index)
     const text = String(option || '').replace(/^[A-D]\s*[.．、]?\s*/, '')
-    return `${label}.${sanitizeText(text)}`
+    return `${label}. ${sanitizeText(text)}`
   })
-  const longOption = items.some(item => item.length > 18)
+  if (!items.length) {
+    return { items, colCount: 4, gap: 26, colWidth: PRACTICE_TEXT_WIDTH, rowHeights: [], height: 0 }
+  }
+  const longOption = items.some(item => item.length > 28)
   const colCount = longOption ? 2 : 4
-  const colWidth = colCount === 4 ? 104 : 212
-  const rowHeight = longOption ? 28 : 24
-  const startY = doc.y + 7
-  setPdfFont(doc, 'bold')
+  const gap = colCount === 4 ? 26 : 28
+  const colWidth = (PRACTICE_TEXT_WIDTH - gap * (colCount - 1)) / colCount
+  const rowHeights = []
+
+  setPdfFont(doc)
+  items.forEach((item, index) => {
+    const row = Math.floor(index / colCount)
+    const height = Math.max(22, estimateTextHeight(doc, item, colWidth, 10.2, 2) + 2)
+    rowHeights[row] = Math.max(rowHeights[row] || 0, height)
+  })
+  const rowsHeight = rowHeights.reduce((sum, height) => sum + height + 2, -2)
+  return {
+    items,
+    colCount,
+    gap,
+    colWidth,
+    rowHeights,
+    height: 10 + Math.max(0, rowsHeight) + 10
+  }
+}
+
+function estimatePracticeOptionsHeight(doc, options = []) {
+  return practiceOptionLayout(doc, options).height
+}
+
+function writePracticeOptions(doc, options = []) {
+  const layout = practiceOptionLayout(doc, options)
+  if (!layout.items.length) return
+  ensureSpace(doc, layout.height + 6)
+  const { items, colCount, gap, colWidth, rowHeights } = layout
+  const startY = doc.y + 10
+
   items.forEach((item, index) => {
     const col = index % colCount
     const row = Math.floor(index / colCount)
-    const x = 92 + col * (colWidth + (colCount === 4 ? 8 : 14))
-    const y = startY + row * rowHeight
-    doc.fontSize(12.4).fillColor('#111111').text(item, x, y, { width: colWidth, lineBreak: false })
+    const x = PRACTICE_TEXT_LEFT + col * (colWidth + gap)
+    const y = startY + rowHeights.slice(0, row).reduce((sum, height) => sum + height + 5, 0)
+    doc.fontSize(10.2).fillColor('#111111').text(item, x, y, {
+      width: colWidth,
+      lineGap: 2
+    })
   })
-  setPdfFont(doc)
-  doc.y = startY + Math.ceil(items.length / colCount) * rowHeight + 10
+  doc.y = startY + rowHeights.reduce((sum, height) => sum + height + 2, -2) + 10
+}
+
+function practiceAnswerSpaceHeight(q) {
+  const text = `${q.type || ''} ${q.section || ''} ${q.question || ''}`
+  if (hasAny(text, ['解答', '应用', '证明', '计算', '论证'])) return 104
+  if (hasAny(text, ['填空'])) return 26
+  return 54
 }
 
 function writePracticeBlank(doc, q) {
-  const isLong = hasAny(`${q.type || ''} ${q.section || ''}`, ['解答', '应用', '证明', '计算'])
-  const lines = isLong ? 3 : 1
-  const blankY = doc.y
   setPdfFont(doc)
-  doc.fontSize(12.2).fillColor('#111111').text('答：', 92, blankY + 4, { width: 34, lineBreak: false })
-  const startY = blankY + 18
-  for (let i = 0; i < lines; i += 1) {
-    const y = startY + i * 28
-    doc.moveTo(126, y).lineTo(506, y).lineWidth(0.9).strokeColor('#111111').stroke()
+  doc.y += practiceAnswerSpaceHeight(q)
+}
+
+function estimatePracticeQuestionBlockHeight(doc, q, questionHeight) {
+  const diagramHeight = inferQuestionDiagramSpec(q) ? 130 : 0
+  const tableHeight = q.tableSpec ? 90 : 0
+  const responseHeight = q.options?.length
+    ? estimatePracticeOptionsHeight(doc, q.options) + 20
+    : practiceAnswerSpaceHeight(q) + 14
+  return Math.max(
+    q.options?.length ? 74 : 82,
+    questionHeight + 4 + diagramHeight + tableHeight + responseHeight
+  )
+}
+
+function writePracticeQuestionLead(doc, q, questionY) {
+  const number = `${q.number || ''}.`
+  setPdfFont(doc)
+  doc.fontSize(11).fillColor('#111111').text(number, PRACTICE_LEFT, questionY, {
+    width: 24,
+    align: 'left',
+    lineBreak: false
+  })
+}
+
+function writePracticeFooters(doc, worksheet, watermark) {
+  const range = doc.bufferedPageRange()
+  const grade = sanitizeText(worksheet.grade || '')
+  const subject = sanitizeText(worksheet.subject || '')
+  const label = `${grade} ${subject}`.trim() || sanitizeText(worksheet.title || '')
+  for (let i = range.start; i < range.start + range.count; i += 1) {
+    doc.switchToPage(i)
+    setPdfFont(doc)
+    doc.opacity(1)
+    const page = i - range.start + 1
+    doc.fontSize(8.8).fillColor('#111111').text(`${label} 第 ${page} 页（共 ${range.count} 页）`, PRACTICE_LEFT, 752, {
+      width: PRACTICE_WIDTH,
+      align: 'center',
+      lineBreak: false
+    })
+    if (watermark) {
+      doc.fontSize(7.5).fillColor('#8A94A6').text('\u0041\u0049\u51fa\u9898\u5c0f\u52a9\u624b', PRACTICE_RIGHT - 90, 752, {
+      width: 90,
+      align: 'right',
+      lineBreak: false
+      })
+    }
   }
-  doc.y = startY + lines * 28 + 4
 }
 
 function writePracticePdf(doc, worksheet, shouldIncludeAnswers, watermark) {
   writePracticeHeader(doc, worksheet)
 
   let currentSection = ''
+  let sectionIndex = 0
   for (const q of worksheet.questions || []) {
+    const renderQuestion = { ...q, subject: q.subject || worksheet.subject }
+    const questionText = sanitizeText(withLatexText(q.question, q.questionLatex))
+    const questionHeight = estimateTextHeight(doc, questionText, PRACTICE_TEXT_WIDTH, 11, 3)
+    const questionMinHeight = estimatePracticeQuestionBlockHeight(doc, renderQuestion, questionHeight)
     if (q.section && q.section !== currentSection) {
       currentSection = q.section
-      writePracticeSectionTitle(doc, currentSection)
+      ensureSpace(doc, 48 + questionMinHeight)
+      writePracticeSectionTitle(doc, currentSection, q, sectionIndex)
+      sectionIndex += 1
     }
-    const questionText = sanitizeText(withLatexText(q.question, q.questionLatex))
-    const questionHeight = estimateTextHeight(doc, questionText, 423, 13.4, 5)
-    ensureSpace(doc, Math.max(100, questionHeight + (q.options?.length ? 55 : 84)))
+    ensureSpace(doc, questionMinHeight)
     const questionY = doc.y
-    setPdfFont(doc, 'bold')
-    doc.fontSize(13.4).fillColor('#111111').text(`${q.number}.`, 72, questionY, { width: 30, lineBreak: false })
+    writePracticeQuestionLead(doc, q, questionY)
     setPdfFont(doc)
-    doc.fontSize(13.4).fillColor('#111111').text(questionText, 100, questionY, {
-      width: 423,
-      lineGap: 5
+    doc.fontSize(11).fillColor('#111111').text(questionText, PRACTICE_TEXT_LEFT, questionY, {
+      width: PRACTICE_TEXT_WIDTH,
+      lineGap: 3
     })
     doc.y = Math.max(doc.y, questionY + questionHeight) + 2
-    writeQuestionDiagram(doc, q, { x: 72, height: 120, width: 300 })
-    writeTableSpec(doc, q.tableSpec, { x: 72, width: 430 })
+    writeQuestionDiagram(doc, renderQuestion, { x: PRACTICE_TEXT_LEFT, height: 120, width: 300 })
+    writeTableSpec(doc, q.tableSpec, { x: PRACTICE_TEXT_LEFT, width: PRACTICE_TEXT_WIDTH })
     if (q.options?.length) {
       writePracticeOptions(doc, q.options)
     } else {
       writePracticeBlank(doc, q)
     }
-    doc.moveDown(0.55)
+    doc.y += q.options?.length ? 20 : 14
   }
 
   if (shouldIncludeAnswers && (worksheet.questions || []).length) {
     doc.addPage()
+    doc.y = 56
     setPdfFont(doc, 'bold')
-    doc.fontSize(18).text('答案与解析', { align: 'center' })
+    doc.fontSize(19).fillColor(COLORS.ink).text('\u7b54\u6848\u4e0e\u89e3\u6790', PRACTICE_LEFT, doc.y, {
+      align: 'center',
+      width: PRACTICE_WIDTH
+    })
+    doc.moveTo(PRACTICE_LEFT, doc.y + 12).lineTo(PRACTICE_RIGHT, doc.y + 12).lineWidth(1).strokeColor(COLORS.line).stroke()
     setPdfFont(doc)
-    doc.moveDown(1)
+    doc.y += 30
     for (const q of worksheet.questions || []) writeAnswerBlock(doc, q)
   }
   if (watermark) writeWatermarks(doc)
+  writePracticeFooters(doc, worksheet, watermark)
 }
 
 export function buildPdf({ worksheet, outputPath, watermark = true, includeAnswers }) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 52, bufferPages: true })
     const isExam = worksheet.mode === 'exam_simulation'
+    doc.info.Title = String(worksheet.examMeta?.title || worksheet.title || 'AI 智能练习卷').trim()
     doc.info.Keywords = watermark && !isExam ? 'printer-sheet-free-watermark' : 'printer-sheet-clean'
     doc.info.Subject = isExam ? 'exam-simulation-student-paper' : (watermark ? 'free-watermark-tiles-per-page=6' : 'clean-pdf')
     const stream = fs.createWriteStream(outputPath)

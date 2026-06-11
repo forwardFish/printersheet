@@ -110,10 +110,37 @@ function applyGeometryPolicyToQuestion(question, sourceBlueprint = null) {
   if (!normalizedDiagram.spec) {
     throw new Error(`Question ${number || '?'} requires diagramSpec: ${classification.reason}`)
   }
+  completeDiagramNamedAngleValues({
+    ...question,
+    number,
+    question: [question.question, question.stem].filter(Boolean).join(' ')
+  }, normalizedDiagram.spec)
+  assertDiagramMatchesQuestionMarkers({
+    ...question,
+    number,
+    question: [question.question, question.stem].filter(Boolean).join(' ')
+  }, normalizedDiagram.spec)
+  assertDiagramCoversQuestionPoints({ ...question, number }, normalizedDiagram.spec)
+  assertDiagramMatchesNamedAngleValues({ ...question, number }, normalizedDiagram.spec)
+  const solutionDiagramInput = question.solutionDiagramSpec && typeof question.solutionDiagramSpec === 'object' && !Array.isArray(question.solutionDiagramSpec)
+    ? question.solutionDiagramSpec
+    : null
+  const normalizedSolutionDiagram = diagramSpecIsMeaningful(solutionDiagramInput)
+    ? normalizeGeometryDiagramSpec(solutionDiagramInput, number, {
+        allowFallback: false,
+        lockTemplates: false
+      })
+    : { spec: null, source: 'none' }
   return {
     ...next,
     diagramSpec: normalizedDiagram.spec,
-    diagramSpecSource: normalizedDiagram.source
+    diagramSpecSource: normalizedDiagram.source,
+    ...(normalizedSolutionDiagram.spec
+      ? {
+          solutionDiagramSpec: normalizedSolutionDiagram.spec,
+          solutionDiagramSpecSource: normalizedSolutionDiagram.source
+        }
+      : {})
   }
 }
 
@@ -149,6 +176,167 @@ function fallbackAnalyticCurveSpec(question = {}) {
     curveKind,
     equation: equation || (curveKind === 'parabola' ? 'y=x^2' : ''),
     axes: { xLabel: 'x', yLabel: 'y' }
+  }
+}
+
+function questionAngleMarkers(question = {}) {
+  const normalizedText = [
+    question.stem,
+    question.question,
+    question.questionLatex,
+    question.answer,
+    question.answerLatex,
+    question.explanation
+  ].join(' ')
+  const explicitMarkers = [...new Set([...String(normalizedText).matchAll(/(?:\u2220|\\angle\s*|angle\s*)(\d+)/gi)].map(match => match[1]))]
+  if (explicitMarkers.length) return explicitMarkers
+  const text = [
+    question.stem,
+    question.question,
+    question.questionLatex,
+    question.answer,
+    question.answerLatex,
+    question.explanation
+  ].join(' ')
+  return [...new Set([...String(text).matchAll(/(?:∠|\\angle\s*|angle\s*)(\d+)/gi)].map(match => match[1]))]
+}
+
+function diagramAngleLabelTexts(spec = {}) {
+  const labels = Array.isArray(spec.angleLabels) ? spec.angleLabels : []
+  return labels.map(item => String(item?.label || item?.value || item?.text || '').trim()).filter(Boolean)
+}
+
+function diagramAngleMarkers(spec = {}) {
+  return [...new Set(diagramAngleLabelTexts(spec)
+    .flatMap(label => {
+      const text = String(label || '').trim()
+      const explicit = [...text.matchAll(/(?:\u2220|\\angle\s*|angle\s*)(\d+)/gi)].map(match => match[1])
+      const leading = text.match(/^(\d+)\s*(?:=|$)/)
+      return leading ? [...explicit, leading[1]] : explicit
+    }))]
+}
+
+function questionPointMarkers(question = {}) {
+  const text = [
+    question.stem,
+    question.question,
+    question.questionLatex
+  ].join(' ')
+  const markers = new Set()
+  const addPointNames = value => {
+    for (const match of String(value || '').matchAll(/[A-Z][0-9]?/g)) markers.add(match[0].toUpperCase())
+  }
+  for (const match of String(text).matchAll(/(?:点|point)\s*([A-Z][0-9]?)/gi)) addPointNames(match[1])
+  for (const match of String(text).matchAll(/([A-Z][0-9]?)\s*(?:为|是|lies|on)\b/gi)) addPointNames(match[1])
+  for (const match of String(text).matchAll(/(?:连接|连结|作|过|交|于点|through|connect)\s*([A-Z0-9]{1,8})/gi)) addPointNames(match[1])
+  for (const match of String(text).matchAll(/(?:∠|\\angle\s*|△|\\triangle\s*|Rt△|⊙)?([A-Z][0-9]?[A-Z][0-9]?[A-Z][0-9]?)/g)) addPointNames(match[1])
+  return [...markers]
+}
+
+function diagramDefinedPointNames(spec = {}) {
+  const pointMap = spec?.points && typeof spec.points === 'object' ? spec.points : {}
+  const vertexMap = spec?.vertices && typeof spec.vertices === 'object' && !Array.isArray(spec.vertices) ? spec.vertices : {}
+  const names = new Set([...Object.keys(pointMap), ...Object.keys(vertexMap)])
+  if (Array.isArray(spec?.vertices)) {
+    spec.vertices.forEach((item, index) => {
+      if (typeof item === 'string') names.add(item)
+      else if (item && typeof item === 'object') names.add(String(item.name || item.label || item.id || `P${index + 1}`))
+    })
+  }
+  const templateId = String(spec?.templateId || '')
+  const solidKind = String(spec?.solidKind || '').toLowerCase()
+  if (spec?.type === 'solid_diagram') {
+    if (templateId === 'square_pyramid_parallel_plane' || solidKind.includes('pyramid')) {
+      ;['A', 'B', 'C', 'D', 'S', 'E', 'F'].forEach(name => names.add(name))
+    } else if (templateId || solidKind) {
+      ;['A', 'B', 'C', 'D', 'A1', 'B1', 'C1', 'D1', 'E'].forEach(name => names.add(name))
+    }
+  }
+  return names
+}
+
+function assertDiagramCoversQuestionPoints(question = {}, spec = null) {
+  const points = diagramDefinedPointNames(spec)
+  if (!points.size) return
+  const markers = questionPointMarkers(question)
+  if (!markers.length) return
+  const missing = markers.filter(marker => !points.has(marker))
+  if (missing.length) {
+    throw new Error(`Question ${question.number || '?'} diagramSpec must define point(s) mentioned in stem: ${missing.join(', ')}`)
+  }
+}
+
+function questionNamedAngleValues(question = {}) {
+  const text = [question.stem, question.question, question.questionLatex].join(' ')
+  return [...String(text).matchAll(/(?:\u2220|\\angle\s*)([A-Z][0-9]?)([A-Z][0-9]?)([A-Z][0-9]?)\s*=\s*([0-9]+)/gi)]
+    .map(match => ({
+      from: match[1].toUpperCase(),
+      vertex: match[2].toUpperCase(),
+      to: match[3].toUpperCase(),
+      value: match[4]
+    }))
+}
+
+function assertDiagramMatchesNamedAngleValues(question = {}, spec = null) {
+  const namedAngles = questionNamedAngleValues(question)
+  if (!namedAngles.length) return
+  const labels = Array.isArray(spec?.angleLabels) ? spec.angleLabels : []
+  const segments = Array.isArray(spec?.segments) ? spec.segments : []
+  const hasSegment = (a, b) => segments.some(pair =>
+    Array.isArray(pair) &&
+    ((String(pair[0]).toUpperCase() === a && String(pair[1]).toUpperCase() === b) ||
+      (String(pair[0]).toUpperCase() === b && String(pair[1]).toUpperCase() === a))
+  )
+  for (const angle of namedAngles) {
+    const found = labels.some(item => {
+      const point = String(item?.point || item?.vertex || '').trim().toUpperCase()
+      const label = String(item?.label || item?.value || item?.text || '')
+      return point === angle.vertex && label.includes(angle.value)
+    })
+    if (!found) {
+      throw new Error(`Question ${question.number || '?'} diagramSpec must label angle value ${angle.value} at vertex ${angle.vertex}`)
+    }
+    if (!hasSegment(angle.vertex, angle.from) || !hasSegment(angle.vertex, angle.to)) {
+      throw new Error(`Question ${question.number || '?'} diagramSpec must draw both rays for angle ${angle.from}${angle.vertex}${angle.to}`)
+    }
+  }
+}
+
+function completeDiagramNamedAngleValues(question = {}, spec = null) {
+  const namedAngles = questionNamedAngleValues(question)
+  if (!namedAngles.length || !spec || typeof spec !== 'object' || Array.isArray(spec)) return spec
+  const points = diagramDefinedPointNames(spec)
+  if (!points.size) return spec
+  if (!Array.isArray(spec.segments)) spec.segments = []
+  if (!Array.isArray(spec.angleLabels)) spec.angleLabels = []
+  const hasSegment = (a, b) => spec.segments.some(pair =>
+    Array.isArray(pair) &&
+    ((String(pair[0]).toUpperCase() === a && String(pair[1]).toUpperCase() === b) ||
+      (String(pair[0]).toUpperCase() === b && String(pair[1]).toUpperCase() === a))
+  )
+  for (const angle of namedAngles) {
+    if (![angle.from, angle.vertex, angle.to].every(name => points.has(name))) continue
+    if (!hasSegment(angle.from, angle.vertex)) spec.segments.push([angle.vertex, angle.from])
+    if (!hasSegment(angle.vertex, angle.to)) spec.segments.push([angle.vertex, angle.to])
+    const hasLabel = spec.angleLabels.some(item => {
+      const point = String(item?.point || item?.vertex || '').trim().toUpperCase()
+      const label = String(item?.label || item?.value || item?.text || '')
+      return point === angle.vertex && label.includes(angle.value)
+    })
+    if (!hasLabel) spec.angleLabels.push({ point: angle.vertex, label: `${angle.value} degrees` })
+  }
+  return spec
+}
+
+function assertDiagramMatchesQuestionMarkers(question = {}, spec = null) {
+  if (!spec) return
+  const markers = questionAngleMarkers(question)
+  if (!markers.length) return
+  const labels = diagramAngleMarkers(spec)
+  for (const marker of markers) {
+    if (!labels.includes(marker)) {
+      throw new Error(`Question ${question.number || '?'} diagramSpec angleLabels must include visible marker ∠${marker}`)
+    }
   }
 }
 
@@ -262,6 +450,31 @@ const TOPIC_GUARDS = [
     allowed: [/根式/, /二次根式/, /平方根/, /化简/]
   }
 ]
+
+const GEOMETRY_DIAGRAM_CONTRACT_PROMPT = [
+  'Geometry diagram contract:',
+  '- If a math question contains "as shown", "in the figure", triangle/circle/parallel/perpendicular/congruent/similar/auxiliary-line relations, or any visual relation needed to solve it, set needsDiagram=true and diagramSpecRequired=true.',
+  '- A question with needsDiagram=true must include a renderable diagramSpec in the same question object. Missing diagramSpec, { "type": "none" }, empty params, or prose like "draw as needed" is invalid.',
+  '- For junior plane geometry, diagramSpec must be semantic only: { "diagramType": "RIGHT_TRIANGLE|ISOSCELES_TRIANGLE|TRIANGLE_ANGLE_SUM|CONGRUENT_TRIANGLES|PARALLEL_LINES_ANGLE|TRIANGLE_AUXILIARY_LINE|CIRCLE_INSCRIBED_ANGLE", "params": {...} }. Do not output freehand points/segments coordinates for plane geometry.',
+  '- Required params examples: RIGHT_TRIANGLE needs vertices and rightAngleAt; ISOSCELES_TRIANGLE needs topPoint/base points or vertices plus equalSides; PARALLEL_LINES_ANGLE needs points/angles; CONGRUENT_TRIANGLES needs leftTriangle/rightTriangle and optional equalSides; TRIANGLE_AUXILIARY_LINE needs vertices, footPoint, and lineKind.',
+  '- If the stem names angle markers such as angle 1/angle 2 or gives values such as 50 degrees, params.angles must include visible labels for those markers/values so the PDF diagram matches the wording.',
+  '- If the stem states a named angle such as angle CAB = 30 degrees or ∠CAB=30°, params.angles must put that value at the vertex point A, not at C or B. In general angle XYZ is labeled at point Y.',
+  '- Numbered angle stems require numbered visible labels, for example PARALLEL_LINES_ANGLE params.angles: [{ "point": "E", "value": "angle 1 = 50 degrees" }, { "point": "F", "value": "angle 2" }]. Do not label the diagram only as "50 degrees", "?", "1", or "2" when the stem names angle 1/angle 2. Prefer at most angle 1/angle 2/angle 3; avoid angle 4+ unless every such marker is visibly labeled in params.angles.',
+  '- Every point referenced by params.segments, params.angles, params.sideLabels, diameter, equalSides, or auxiliary data must be defined by the template params. For circle questions that use point D/E/etc, include those names in params.points and in labels; never reference an undeclared point.',
+  '- Do not mention points that the chosen semantic template cannot draw. RIGHT_TRIANGLE, ISOSCELES_TRIANGLE, and TRIANGLE_ANGLE_SUM should use only A/B/C unless their params explicitly support more. TRIANGLE_AUXILIARY_LINE should use triangle A/B/C plus one auxiliary foot point D only; do not introduce E/F/intersection points in the stem. If you need E/F, rewrite the stem into a simpler supported template.',
+  '- ASCII hard rule for supported plane geometry: do not use point E, F, G, H, M, N in plane-geometry stems, answers, explanationSteps, proofSteps, diagramSpec, or solutionDiagramSpec. Use only A/B/C/D for triangle templates and O/A/B/C/D for circle templates. The names F1/F2 are allowed only for analytic_curve focus points, never for plane geometry.',
+  '- Chinese hard rule: 三角形辅助线题只能出现 A/B/C/D 四个点；题干、解析、答案不得出现 E/F/G 或其他额外点。若想写中线/高/角平分线，统一把辅助点命名为 D，并在 params.footPoint="D" 中声明。',
+  '- For CIRCLE_INSCRIBED_ANGLE, prefer only O/A/B/C/D. Do not introduce E/F/intersection points in circle stems. If a circle stem names D, params.points must include ["A","B","C","D"]; if it would need E/F, simplify the stem instead.',
+  '- For TRIANGLE_AUXILIARY_LINE, params.lineKind must explicitly be "median", "altitude", or "angle_bisector" according to the stem. A median must include equalSides/equal base segments; an altitude must include rightAngleAt/perpendicular information.',
+  '- For circle questions with diameter/chord/inscribed angle/tangent wording, use CIRCLE_INSCRIBED_ANGLE with center, points, diameter/segments, and angles in params.',
+  '- If the requested item is genuinely unsupported by the current plane-geometry templates, do not create a diagram-dependent question. Rewrite that item into a supported geometry template or a diagram-free math question before returning JSON.',
+  '- Analytic geometry must use type="analytic_curve"; solid geometry must use type="solid_diagram"; number-line questions may use type="number_line".',
+  '- Analytic geometry diagramSpec must not be a bare curve when the stem names visual objects. If the stem names P, A/B chord endpoints, F1/F2, a tangent/intersection, or an angle such as angle F1PF2=60 degrees, include those named points in points/labels, include the necessary segments or lines, and include angleLabels at the correct vertex.',
+  '- Hard format for named angle values: if the stem or questionLatex contains angle XYZ=60, diagramSpec.angleLabels must include an item whose point or vertex is Y and whose label/value/text contains the digits "60"; diagramSpec.segments must include [X,Y] and [Y,Z]. For example angle F1PF2=60 requires angleLabels:[{"point":"P","label":"60 degrees"}] and segments:[["P","F1"],["P","F2"]].',
+  '- For every geometry question with needsDiagram=true, also return solutionDiagramSpec when the solving process uses auxiliary lines, key equal angles, key lengths, focus rays, tangents, secants, projections, section planes, or a dihedral/line-plane angle. solutionDiagramSpec must be renderable by the same contract as diagramSpec; otherwise omit it entirely. Never return an empty solutionDiagramSpec or { "type": "none" }.',
+  '- solutionDiagramSpec should be the answer-side construction diagram: keep the original shape, and add only the visual reasoning marks needed by the explanationSteps/proofSteps. Examples: add AD as median/altitude/angle bisector, mark equal angles, draw PF1/PF2 and the 60 degree angle, mark the plane/edge used for a solid-geometry angle.',
+  '- Never mark needsDiagram=true unless diagramSpec is complete and valid.'
+].join('\n')
 
 function requestedGradeAliases(prompt = '', grade = '') {
   const text = `${prompt}\n${grade}`
@@ -497,7 +710,24 @@ function buildPrompt({ prompt, fileText, defaults, questionCount, sourceBlueprin
       diagramSpecRequired: false,
       geometryDomain: 'none',
       geometryTemplateFamily: '',
-      diagramSpec: { type: 'none' },
+      diagramSpec: {
+        diagramType: 'RIGHT_TRIANGLE',
+        params: {
+          vertices: ['A', 'B', 'C'],
+          rightAngleAt: 'C',
+          angles: [{ point: 'A', value: '30°' }],
+          sideLabels: [{ segment: ['A', 'B'], label: '10' }]
+        }
+      },
+      solutionDiagramSpec: {
+        diagramType: 'TRIANGLE_AUXILIARY_LINE',
+        params: {
+          vertices: ['A', 'B', 'C'],
+          footPoint: 'D',
+          lineKind: 'altitude',
+          angles: [{ point: 'D', value: '90 degrees' }]
+        }
+      },
       tableSpec: { headers: [], rows: [] },
       options: [],
       answer: '',
@@ -553,7 +783,7 @@ function buildPrompt({ prompt, fileText, defaults, questionCount, sourceBlueprin
       '重点照顾数学几何、函数图像、数轴、方程组、分式、根号、上下标和证明题。涉及这些内容时，公式必须写成 LaTeX；证明题 proofSteps 每步写清依据。',
       '涉及几何图、数轴、函数图像、电路图、光路图、化学方程式或实验图时，不要写“图略”；能抽象为图的题目必须返回 diagramSpec，表格题必须返回 tableSpec。',
       '平面几何图不要输出 points/segments 坐标。AI 只负责识别题型和参数，必须输出 diagramSpec={ "diagramType": "...", "params": {...} }，由程序模板库确定性绘图。',
-      'MVP 支持的平面几何 diagramType：TRIANGLE_ANGLE_SUM、ISOSCELES_TRIANGLE、RIGHT_TRIANGLE、CONGRUENT_TRIANGLES、PARALLEL_LINES_ANGLE、TRIANGLE_AUXILIARY_LINE。未知平面几何题型宁可返回 { "type": "none" } 并让系统补模板，也不要编造坐标。',
+      'MVP 支持的平面几何 diagramType：TRIANGLE_ANGLE_SUM、ISOSCELES_TRIANGLE、RIGHT_TRIANGLE、CONGRUENT_TRIANGLES、PARALLEL_LINES_ANGLE、TRIANGLE_AUXILIARY_LINE、CIRCLE_INSCRIBED_ANGLE。未知平面几何题型宁可改写为已支持模板或返回 { "type": "none" }，也不要编造坐标。',
       '示例：{ "diagramType": "ISOSCELES_TRIANGLE", "params": { "topPoint": "A", "leftPoint": "B", "rightPoint": "C", "equalSides": [["A","B"],["A","C"]], "knownAngles": [{ "point": "B", "value": "40°" }] } }。',
       '数轴仍可使用 number_line；解析几何可使用 analytic_curve；立体几何可使用 solid_diagram。只有这些非平面模板类型才允许携带必要坐标或参数。',
       '如果用户要求整卷仿真，保持结构、题型、知识点和难度比例相似，但必须改写题目。',
@@ -569,9 +799,12 @@ function buildPrompt({ prompt, fileText, defaults, questionCount, sourceBlueprin
       'If needsDiagram=true, diagramSpec is mandatory. If a question is algebra/computation only, any non-none geometry diagramSpec is invalid.',
       'Math geometry classification priority is analytic_geometry > solid_geometry > plane_geometry > number_line. Non-math subjects must not use math geometry diagramSpec.',
       'Analytic geometry with ellipse/hyperbola/parabola/focus/eccentricity/asymptote/directrix/tangent/intersection must set needsDiagram=true and use diagramSpec.type="analytic_curve".',
+      'For analytic_curve, include all named points from the stem. Example for angle F1PF2=60 degrees: points must include F1, F2, P; segments must include ["P","F1"] and ["P","F2"]; angleLabels must include { point:"P", label:"60 degrees" }. A bare ellipse with only F1/F2 is invalid when P or a chord/angle is mentioned.',
       'Solid geometry with cube/cuboid/pyramid/dihedral angle/line-plane angle/plane/edge must set needsDiagram=true and use diagramSpec.type="solid_diagram".',
-      'Supported new diagramSpec types: analytic_curve { curveKind,equation,axes,points,lines,asymptotes,labels } and solid_diagram { solidKind,templateId,vertices,edges,hiddenEdges,faces,marks,labels }.',
+      'Supported new diagramSpec types: analytic_curve { curveKind,equation,axes,points,segments,lines,asymptotes,angleLabels,lengthLabels,labels } and solid_diagram { solidKind,templateId,vertices,edges,hiddenEdges,faces,marks,labels }.',
       'For junior plane geometry, do not emit coordinate points. Use semantic diagramSpec only: { "diagramType": "RIGHT_TRIANGLE", "params": { "vertices": ["A","B","C"], "rightAngleAt": "C" } }.',
+      '三角形辅助线题只能使用 A/B/C/D 四个点，不能在题干或解析中写 E/F/G；垂足、中点、角平分线交点统一命名为 D，并写入 TRIANGLE_AUXILIARY_LINE params.footPoint。',
+      GEOMETRY_DIAGRAM_CONTRACT_PROMPT,
       JSON.stringify(schema)
     ].join('\n'),
     user: [
@@ -604,7 +837,8 @@ function buildPrompt({ prompt, fileText, defaults, questionCount, sourceBlueprin
             '',
             'Previous response was invalid. Fix these issues:',
             retryReason,
-            'If the previous error says a question requires diagramSpec, either provide a complete valid diagramSpec or rewrite that item as a diagram-free quadratic-function question.',
+            'If the previous error says a question requires diagramSpec, that same item must return a complete valid diagramSpec. Do not keep needsDiagram=true without diagramSpec.',
+            'For requested geometry practice, do not dodge the requirement by turning every geometry item into algebra. Use one of the supported semantic plane-geometry diagramTypes whenever a diagram relation is needed.',
             'If uploaded material exists, include sourceAnchors in the top-level JSON.',
             `Again: questions.length must be exactly ${count}. Each question needs question, answer, explanation, and should include questionLatex, answerLatex, explanationSteps, diagramSpec when useful.`,
             'Return exactly one JSON object. No Markdown, no comments, no extra text.'
@@ -754,6 +988,8 @@ function buildBlueprintPrompt({ prompt, fileText, defaults, baselineBlueprint, r
       '每条蓝图必须包含 originalStem、knowledgePoints、variationPlan、difficulty、type、score、expectedAnswerShape。',
       'originalStem 应概括原题，不要遗漏题型和核心条件；knowledgePoints 必须具体到知识点。',
       '输出 JSON 必须符合 schema：',
+      GEOMETRY_DIAGRAM_CONTRACT_PROMPT,
+      'Blueprint rule: if originalStem says as shown/in the figure or contains a required visual relation, set needsDiagram=true, diagramSpecRequired=true, geometryDomain, geometryTemplateFamily, and diagramRequiredReason. The later worksheet step will be rejected unless it returns diagramSpec for that item.',
       JSON.stringify(schema)
     ].join('\n'),
     user: [
@@ -855,6 +1091,8 @@ function buildBatchBlueprintPrompt({ prompt, defaults, batch, items, retryReason
       '不得生成新题；只抽象原题、知识点、变式方向、难度、分值和答案形态。',
       '每条必须包含 number、originalStem、knowledgePoints、variationPlan、difficulty、type、score、expectedAnswerShape。',
       '输出 JSON 必须符合 schema：',
+      GEOMETRY_DIAGRAM_CONTRACT_PROMPT,
+      'Blueprint rule: if an original item says as shown/in the figure or contains a required visual relation, set needsDiagram=true, diagramSpecRequired=true, geometryDomain, geometryTemplateFamily, and diagramRequiredReason.',
       JSON.stringify(schema)
     ].join('\n'),
     user: [
@@ -1007,6 +1245,18 @@ function buildBatchWorksheetPrompt({ prompt, defaults, sourceBlueprint, batch, i
       type: batch.label,
       difficulty: '',
       skill: '',
+      needsDiagram: false,
+      diagramSpecRequired: false,
+      geometryDomain: 'none',
+      geometryTemplateFamily: '',
+      diagramSpec: {
+        diagramType: 'RIGHT_TRIANGLE',
+        params: {
+          vertices: ['A', 'B', 'C'],
+          rightAngleAt: 'C',
+          angles: [{ point: 'A', value: '30°' }]
+        }
+      },
       question: '',
       options: batch.label === '选择题' ? ['A. ', 'B. ', 'C. ', 'D. '] : [],
       answer: '',
@@ -1023,6 +1273,8 @@ function buildBatchWorksheetPrompt({ prompt, defaults, sourceBlueprint, batch, i
       batch.label === '解答题' ? '解答题应适合打印，题干保留必要条件，不要把完整解析写进题干。' : '',
       '每题必须有 question、answer、explanation。',
       '输出 JSON 必须符合 schema：',
+      GEOMETRY_DIAGRAM_CONTRACT_PROMPT,
+      'Every generated item must preserve the blueprint diagram requirement. If the blueprint item has needsDiagram=true or diagramSpecRequired=true, the returned question must include needsDiagram=true and a complete valid diagramSpec.',
       JSON.stringify(schema)
     ].filter(Boolean).join('\n'),
     user: [
@@ -1202,7 +1454,23 @@ function buildOptimizedFullPaperPrompt({ prompt, defaults, sourceBlueprint, batc
       diagramSpecRequired: false,
       geometryDomain: 'none',
       geometryTemplateFamily: '',
-      diagramSpec: { type: 'none' },
+      diagramSpec: {
+        diagramType: 'RIGHT_TRIANGLE',
+        params: {
+          vertices: ['A', 'B', 'C'],
+          rightAngleAt: 'C',
+          angles: [{ point: 'A', value: '30°' }]
+        }
+      },
+      solutionDiagramSpec: {
+        diagramType: 'TRIANGLE_AUXILIARY_LINE',
+        params: {
+          vertices: ['A', 'B', 'C'],
+          footPoint: 'D',
+          lineKind: 'altitude',
+          angles: [{ point: 'D', value: '90 degrees' }]
+        }
+      },
       tableSpec: { headers: [], rows: [] },
       options: batch.from <= 10 ? ['A', 'B', 'C', 'D'] : [],
       answer: '答案',
@@ -1228,10 +1496,12 @@ function buildOptimizedFullPaperPrompt({ prompt, defaults, sourceBlueprint, batc
       'Use LaTeX only in questionLatex/answerLatex, for example a^2, \\frac{1}{2}, \\sqrt{5}, \\angle ABC.',
       'Each blueprint item includes needsDiagram/diagramSpecRequired. Algebra, equations, inequalities, powers, factors, and pure computation must keep needsDiagram=false and diagramSpec={ "type": "none" }.',
       'Only questions whose blueprint or stem truly requires a diagram may set needsDiagram=true. If needsDiagram=true, diagramSpec is mandatory and must match geometryDomain/geometryTemplateFamily.',
-      'For junior plane geometry questions, diagramSpec is required but must be semantic: { "diagramType": "TRIANGLE_ANGLE_SUM|ISOSCELES_TRIANGLE|RIGHT_TRIANGLE|CONGRUENT_TRIANGLES|PARALLEL_LINES_ANGLE|TRIANGLE_AUXILIARY_LINE", "params": {...} }. Do not output freehand points/segments coordinates.',
+      'For junior plane geometry questions, diagramSpec is required but must be semantic: { "diagramType": "TRIANGLE_ANGLE_SUM|ISOSCELES_TRIANGLE|RIGHT_TRIANGLE|CONGRUENT_TRIANGLES|PARALLEL_LINES_ANGLE|TRIANGLE_AUXILIARY_LINE|CIRCLE_INSCRIBED_ANGLE", "params": {...} }. Do not output freehand points/segments coordinates.',
       'For analytic_geometry use diagramSpec.type="analytic_curve" with curveKind ellipse/parabola/hyperbola plus axes, equation, points, lines/asymptotes when relevant.',
       'For solid_geometry use diagramSpec.type="solid_diagram"; supported templateId values include cube_midpoint_dihedral_angle and square_pyramid_parallel_plane.',
       'Prefer diagramType + params over templateId. Unknown plane-geometry templates should use { "type": "none" } instead of misleading freehand coordinates.',
+      GEOMETRY_DIAGRAM_CONTRACT_PROMPT,
+      'For any blueprint item with needsDiagram=true or diagramSpecRequired=true, the generated question must keep needsDiagram=true and include a complete renderable diagramSpec. Do not output placeholder text such as "the figure is omitted".',
       'For table/application questions, tableSpec is required when the source question has a table.',
       JSON.stringify(schema)
     ].join('\n'),
@@ -1286,6 +1556,27 @@ function validateOptimizedFullPaperQuestions(payload, batch, sourceBlueprint = n
     if (geometry.needsDiagram && !normalizedDiagram.spec) {
       throw new Error(`Question ${number} requires diagramSpec: ${geometry.reason}`)
     }
+      completeDiagramNamedAngleValues({
+        ...question,
+        number,
+        question: [question.question, question.stem].filter(Boolean).join(' ')
+      }, normalizedDiagram.spec)
+      assertDiagramMatchesQuestionMarkers({
+        ...question,
+        number,
+        question: [question.question, question.stem].filter(Boolean).join(' ')
+      }, normalizedDiagram.spec)
+      assertDiagramCoversQuestionPoints({ ...question, number }, normalizedDiagram.spec)
+      assertDiagramMatchesNamedAngleValues({ ...question, number }, normalizedDiagram.spec)
+    const solutionDiagramInput = question.solutionDiagramSpec && typeof question.solutionDiagramSpec === 'object' && !Array.isArray(question.solutionDiagramSpec)
+      ? question.solutionDiagramSpec
+      : null
+    const normalizedSolutionDiagram = diagramSpecIsMeaningful(solutionDiagramInput)
+      ? normalizeGeometryDiagramSpec(solutionDiagramInput, number, {
+          allowFallback: false,
+          lockTemplates: false
+        })
+      : { spec: null, source: 'none' }
     return {
       number,
       section: String(question.section || sectionInfo.section).trim(),
@@ -1304,6 +1595,12 @@ function validateOptimizedFullPaperQuestions(payload, batch, sourceBlueprint = n
       geometryClassification: geometry,
       diagramSpec: normalizedDiagram.spec,
       diagramSpecSource: normalizedDiagram.source,
+      ...(normalizedSolutionDiagram.spec
+        ? {
+            solutionDiagramSpec: normalizedSolutionDiagram.spec,
+            solutionDiagramSpecSource: normalizedSolutionDiagram.source
+          }
+        : {}),
       tableSpec: question.tableSpec && typeof question.tableSpec === 'object' && !Array.isArray(question.tableSpec) ? question.tableSpec : null,
       explanation: String(question.explanation || '').trim(),
       explanationSteps: Array.isArray(question.explanationSteps) ? question.explanationSteps : [],
@@ -1455,7 +1752,7 @@ export async function generateWorksheetWithAI({ prompt, fileText = '', grade = '
   }
 
   let lastError
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
     try {
       const { content } = await callModel({
         prompt,

@@ -237,6 +237,78 @@ test('analytic_curve and solid_diagram render nonzero PDF height', () => {
   doc.end()
 })
 
+test('solid_diagram renders when AI returns vertex names without coordinates', () => {
+  const spec = {
+    type: 'solid_diagram',
+    solidKind: 'cube',
+    templateId: 'cube_ABCD_A1B1C1D1',
+    vertices: ['A', 'B', 'C', 'D', 'A1', 'B1', 'C1', 'D1'],
+    edges: [['A', 'B'], ['B', 'C'], ['C', 'D'], ['D', 'A'], ['A1', 'B1'], ['B1', 'C1'], ['C1', 'D1'], ['D1', 'A1'], ['A', 'A1'], ['B', 'B1'], ['C', 'C1'], ['D', 'D1']],
+    hiddenEdges: [['D', 'A'], ['D', 'D1'], ['D1', 'A1']],
+    labels: ['A', 'B', 'C', 'D', 'A1', 'B1', 'C1', 'D1', 'O'],
+    marks: [{ type: 'angle', vertex: 'O', points: ['A', 'O', 'A1'], label: 'theta' }]
+  }
+  assert.equal(validateGeometryDiagramSpec(spec).valid, true)
+  const doc = new PDFDocument({ size: 'A4', margin: 40 })
+  const result = renderGeometryDiagram(doc, spec, { x: 60, y: 60, width: 260, height: 140, allowFallback: false })
+  assert.ok(result.height > 0)
+  doc.end()
+})
+
+test('analytic_curve can render named points, rays, and angle labels', () => {
+  const spec = {
+    type: 'analytic_curve',
+    curveKind: 'ellipse',
+    equation: 'x^2/9+y^2/5=1',
+    axes: { a: 3, b: Math.sqrt(5) },
+    points: { F1: [-2, 0], F2: [2, 0], P: [0.5, 2.2] },
+    segments: [['P', 'F1'], ['P', 'F2']],
+    labels: ['F1', 'F2', 'P'],
+    angleLabels: [{ point: 'P', label: '60°' }]
+  }
+  assert.equal(validateGeometryDiagramSpec(spec).valid, true)
+
+  const invalid = {
+    ...spec,
+    segments: [['P', 'F3']]
+  }
+  const invalidResult = validateGeometryDiagramSpec(invalid)
+  assert.equal(invalidResult.valid, false)
+  assert.match(invalidResult.reason, /undefined point/)
+
+  const doc = new PDFDocument({ size: 'A4', margin: 40 })
+  const result = renderGeometryDiagram(doc, spec, { x: 60, y: 60, width: 300, height: 140, allowFallback: false })
+  assert.ok(result.height > 0)
+  doc.end()
+})
+
+test('analytic_curve derives coordinates when AI returns point names only', () => {
+  const ellipse = {
+    type: 'analytic_curve',
+    curveKind: 'ellipse',
+    equation: 'x^2/25+y^2/9=1',
+    points: ['F1', 'F2', 'P'],
+    segments: [['P', 'F1'], ['P', 'F2']],
+    labels: [{ point: 'F1', label: 'F1' }, { point: 'F2', label: 'F2' }, { point: 'P', label: 'P' }],
+    angleLabels: [{ point: 'P', label: '60 degrees' }]
+  }
+  const parabola = {
+    type: 'analytic_curve',
+    curveKind: 'parabola',
+    equation: 'y^2=4x',
+    points: ['F', 'A', 'B', 'O'],
+    segments: [['A', 'B'], ['O', 'A'], ['O', 'B']],
+    labels: ['F', 'A', 'B', 'O'],
+    lengthLabels: [{ segment: ['A', 'B'], label: '8' }]
+  }
+  const doc = new PDFDocument({ size: 'A4', margin: 40 })
+  const ellipseResult = renderGeometryDiagram(doc, ellipse, { x: 60, y: 60, width: 300, height: 140, allowFallback: false })
+  const parabolaResult = renderGeometryDiagram(doc, parabola, { x: 60, y: 240, width: 300, height: 140, allowFallback: false })
+  assert.ok(ellipseResult.height > 0)
+  assert.ok(parabolaResult.height > 0)
+  doc.end()
+})
+
 test('DeepSeek right-triangle altitude spec is accepted and rendered', () => {
   const classification = classifyGeometryQuestion({
     subject: '\u6570\u5b66',
@@ -299,6 +371,15 @@ test('semantic geometry diagramTypes resolve to deterministic template specs', (
     {
       diagramType: 'PARALLEL_LINES_ANGLE',
       params: { angles: [{ point: 'E', value: '\\angle 1' }, { point: 'F', value: '\\angle 2' }] }
+    },
+    {
+      diagramType: 'CIRCLE_INSCRIBED_ANGLE',
+      params: {
+        center: 'O',
+        points: ['A', 'B', 'C'],
+        diameter: ['A', 'B'],
+        angles: [{ point: 'C', value: '90掳' }]
+      }
     }
   ]
 
@@ -315,6 +396,20 @@ test('semantic geometry diagramTypes resolve to deterministic template specs', (
     assert.ok(normalized.spec.diagramBox.width >= 300)
     assert.ok(normalized.spec.labels.length >= 3)
   }
+
+  const rightTriangle = resolveSemanticDiagramSpec({
+    diagramType: 'RIGHT_TRIANGLE',
+    params: { vertices: ['A', 'B', 'C'], rightAngleAt: 'C' }
+  })
+  const vectorA = [
+    rightTriangle.points.A[0] - rightTriangle.points.C[0],
+    rightTriangle.points.A[1] - rightTriangle.points.C[1]
+  ]
+  const vectorB = [
+    rightTriangle.points.B[0] - rightTriangle.points.C[0],
+    rightTriangle.points.B[1] - rightTriangle.points.C[1]
+  ]
+  assert.equal(vectorA[0] * vectorB[0] + vectorA[1] * vectorB[1], 0)
 })
 
 test('semantic geometry diagrams render within independent boxes', () => {
@@ -324,6 +419,15 @@ test('semantic geometry diagrams render within independent boxes', () => {
     { diagramType: 'ISOSCELES_TRIANGLE', params: { knownAngles: [{ point: 'B', value: '40°' }] } },
     { diagramType: 'RIGHT_TRIANGLE', params: { rightAngleAt: 'C' } },
     { diagramType: 'CONGRUENT_TRIANGLES', params: {} },
+    {
+      diagramType: 'CIRCLE_INSCRIBED_ANGLE',
+      params: {
+        center: 'O',
+        points: ['A', 'B', 'C'],
+        diameter: ['A', 'B'],
+        angles: [{ point: 'C', value: '90掳' }]
+      }
+    },
     { diagramType: 'PARALLEL_LINES_ANGLE', params: { angles: [{ point: 'E', value: '∠1' }] } }
   ]
 
@@ -339,4 +443,51 @@ test('semantic geometry diagrams render within independent boxes', () => {
     assert.equal(result.source, 'ai')
   })
   doc.end()
+})
+
+test('resolved semantic geometry keeps angle and length labels when normalized again', () => {
+  const resolved = resolveSemanticDiagramSpec({
+    diagramType: 'RIGHT_TRIANGLE',
+    params: {
+      vertices: ['A', 'B', 'C'],
+      rightAngleAt: 'C',
+      angles: [{ point: 'A', value: '30°' }],
+      sideLabels: [{ segment: ['A', 'B'], label: '10' }]
+    }
+  })
+
+  const normalized = normalizeGeometryDiagramSpec(resolved, 1, { allowFallback: false })
+  assert.equal(normalized.source, 'ai')
+  assert.deepEqual(normalized.spec.angleLabels, [{ point: 'A', label: '30°' }])
+  assert.deepEqual(normalized.spec.lengthLabels, [{ segment: ['A', 'B'], label: '10' }])
+})
+
+test('geometry validation rejects references to undefined points', () => {
+  const spec = {
+    type: 'circle_geometry',
+    points: { O: [160, 100], A: [70, 100], B: [250, 100], C: [160, 10] },
+    circles: [{ center: 'O', through: 'A' }],
+    segments: [['A', 'D'], ['C', 'D']],
+    labels: ['O', 'A', 'B', 'C'],
+    angleLabels: [{ point: 'D', label: '?' }]
+  }
+  const result = validateGeometryDiagramSpec(spec)
+  assert.equal(result.valid, false)
+  assert.match(result.reason, /undefined point/)
+})
+
+test('circle semantic template supports extra declared circle points', () => {
+  const normalized = normalizeGeometryDiagramSpec({
+    diagramType: 'CIRCLE_INSCRIBED_ANGLE',
+    params: {
+      center: 'O',
+      points: ['A', 'B', 'C', 'D'],
+      diameter: ['A', 'B'],
+      segments: [['A', 'D'], ['C', 'D'], ['A', 'B']],
+      angles: [{ point: 'D', value: '?' }]
+    }
+  }, 1, { allowFallback: false })
+  assert.equal(normalized.source, 'ai')
+  assert.ok(normalized.spec.points.D)
+  assert.equal(validateGeometryDiagramSpec(normalized.spec).valid, true)
 })
